@@ -1,0 +1,109 @@
+/* ================= وحدة: إدارة المخزون العام (#page-inventory) ================= */
+#page-inventory .eq-head{display:flex;align-items:center;gap:16px;margin-bottom:16px;flex-wrap:wrap}
+#page-inventory .eq-head .tile{width:64px;height:64px;border-radius:20px;display:grid;place-items:center;background:rgba(59,130,246,.15);flex:none}
+#page-inventory .eq-head .tile .i3d,#page-inventory .eq-head .tile .i3d-fb{--s:44px}
+#page-inventory .eq-head h2{font-family:var(--f-display);font-size:24px;font-weight:800;line-height:1.25}
+#page-inventory .eq-head p{color:var(--muted);font-size:14px}
+#page-inventory .eq-head .grow{flex:1;min-width:200px}
+#page-inventory .eq-tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+#page-inventory .eq-link{font-size:12.5px}
+
+#page-inventory .eq-tabs{display:flex;gap:4px;padding:4px;background:var(--card);border:1px solid var(--card-border);border-radius:16px;margin-bottom:14px;position:sticky;top:0;z-index:5;box-shadow:var(--shadow-sm)}
+#page-inventory .eq-tab{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;height:46px;border-radius:12px;font-weight:700;font-size:14.5px;color:var(--muted)}
+#page-inventory .eq-tab .i3d,#page-inventory .eq-tab .i3d-fb{--s:26px}
+#page-inventory .eq-tab:hover{background:var(--card-2)}
+#page-inventory .eq-tab.active{background:var(--accent-soft);color:var(--accent-text)}
+#page-inventory .eq-tab .cnt{font-size:12px;font-weight:700;padding:1px 8px;border-radius:9px;background:var(--card-2);color:var(--muted)}
+#page-inventory .eq-tab.active .cnt{background:var(--card);color:var(--accent-text)}
+
+#page-inventory .eq-filter{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:10px 12px;margin-bottom:14px}
+#page-inventory .eq-filter .lbl{font-size:13px;font-weight:700;color:var(--muted);display:flex;align-items:center;gap:6px}
+#page-inventory .eq-filter .on{color:var(--accent-text)}
+#page-inventory .inp{height:42px;border-radius:12px;border:1px solid var(--card-border);background:var(--card-2);padding:0 12px;font-size:14px;outline:none;min-width:0;transition:border-color .15s,box-shadow .15s}
+#page-inventory .inp:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+#page-inventory .inp[readonly]{background:transparent;border-style:dashed;color:var(--muted)}
+#page-inventory .inp.invalid{border-color:var(--danger);box-shadow:0 0 0 3px var(--danger-bg);animation:eqShake .3s}
+@keyframes eqShake{25%{transform:translateX(4px)}75%{transform:translateX(-4px)}}
+#page-inventory .eq-filter .inp[type=text]{flex:1;min-width:160px}
+
+#page-inventory .eq-page{display:none}
+#page-inventory .eq-page.active{display:block;animation:pageIn .2s ease-out}
+
+#page-inventory .eq-form{padding:20px;margin-bottom:16px;transition:box-shadow .2s,border-color .2s}
+#page-inventory .eq-form.editing{border-color:var(--warn-text);box-shadow:0 0 0 3px var(--warn-bg)}
+#page-inventory .eq-form h3{font-family:var(--f-display);font-size:17px;display:flex;align-items:center;gap:10px;margin-bottom:14px}
+#page-inventory .eq-form h3 .i3d,#page-inventory .eq-form h3 .i3d-fb{--s:30px}
+#page-inventory .eq-edit-note{display:none;margin:-4px 0 14px;padding:9px 13px;border-radius:12px;background:var(--warn-bg);color:var(--warn-text);font-size:13.5px;font-weight:600}
+#page-inventory .eq-form.editing .eq-edit-note{display:block}
+#page-inventory .eq-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+#page-inventory .field{display:flex;flex-direction:column;gap:5px;min-width:0}
+#page-inventory .field .inp{width:100%}
+#page-inventory .field label{font-size:13px;color:var(--muted);font-weight:600}
+#page-inventory .field label i{color:var(--danger);font-style:normal}
+#page-inventory .eq-btns{display:flex;gap:9px;margin-top:16px;flex-wrap:wrap}
+#page-inventory .bal-ok{color:var(--success-text)!important;font-weight:700}
+#page-inventory .bal-low{color:var(--warn-text)!important;font-weight:700}
+#page-inventory .bal-out{color:var(--danger-text)!important;font-weight:700}
+
+#page-inventory .eq-table-card{overflow:hidden;margin-bottom:16px}
+#page-inventory .eq-table-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;border-bottom:1px solid var(--card-border);flex-wrap:wrap}
+#page-inventory .eq-table-head h3{font-family:var(--f-display);font-size:16px;display:flex;align-items:center;gap:8px}
+#page-inventory .eq-scroll{overflow-x:auto}
+#page-inventory table{width:100%;border-collapse:collapse;font-size:14px}
+#page-inventory th{background:var(--card-2);padding:10px 12px;text-align:start;font-size:12.5px;font-weight:600;color:var(--muted);white-space:nowrap}
+#page-inventory td{padding:10px 12px;border-bottom:1px solid var(--card-border);white-space:nowrap}
+#page-inventory tbody tr:last-child td{border-bottom:0}
+#page-inventory tbody tr:hover td{background:var(--card-2)}
+#page-inventory tr.row-edit td{background:var(--warn-bg)!important}
+#page-inventory tr.row-new td{animation:eqFlash 1.6s ease-out}
+@keyframes eqFlash{from{background:var(--accent-soft)}}
+#page-inventory td.n{color:var(--muted)}
+#page-inventory .qty-in{color:var(--success-text);font-weight:700}
+#page-inventory .qty-out{color:var(--danger-text);font-weight:700}
+#page-inventory .qty-bal{color:var(--info-text);font-weight:700}
+#page-inventory .ib{width:34px;height:34px;border-radius:10px;display:inline-grid;place-items:center;border:1px solid var(--card-border);background:var(--card);font-size:15px}
+#page-inventory .ib:hover{background:var(--card-2)}
+#page-inventory .ib.del:hover{background:var(--danger-bg);border-color:transparent}
+#page-inventory .acts{display:flex;gap:6px}
+#page-inventory input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent);cursor:pointer}
+#page-inventory .eq-empty{text-align:center;padding:34px 16px!important;color:var(--muted);white-space:normal}
+
+#page-inventory .eq-alert{display:none;padding:12px 16px;border-radius:16px;margin-bottom:14px;font-size:14px;line-height:1.8}
+#page-inventory .eq-alert.show{display:block}
+#page-inventory .eq-alert.out{background:var(--danger-bg);color:var(--danger-text)}
+#page-inventory .eq-alert.low{background:var(--warn-bg);color:var(--warn-text)}
+#page-inventory .eq-kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px}
+#page-inventory .kpi{padding:14px 16px;display:flex;flex-direction:column;gap:2px}
+#page-inventory .kpi small{font-size:12.5px;color:var(--muted);font-weight:600}
+#page-inventory .kpi b{font-family:var(--f-display);font-size:26px;line-height:1.2}
+#page-inventory .kpi.in b{color:var(--success-text)} #page-inventory .kpi.out b{color:var(--danger-text)}
+#page-inventory .kpi.bal b{color:var(--info-text)} #page-inventory .kpi.low b{color:var(--warn-text)}
+#page-inventory .kpi.low{cursor:pointer}
+#page-inventory .eq-chart{padding:18px;margin-bottom:16px}
+#page-inventory .eq-chart-top{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+#page-inventory .eq-chart-top h3{font-family:var(--f-display);font-size:16px}
+#page-inventory .chart-wrap{position:relative;height:280px}
+#page-inventory .eq-stock-tools{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+
+html[data-layout="mobile"] #page-inventory .eq-kpis{grid-template-columns:1fr 1fr}
+html[data-layout="mobile"] #page-inventory .eq-kpis .kpi:last-child{grid-column:1/-1}
+html[data-layout="mobile"] #page-inventory .eq-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+html[data-layout="mobile"] #page-inventory .eq-filter .inp{flex:1 1 40%}
+html[data-layout="mobile"] #page-inventory .eq-grid .field.wide{grid-column:1/-1}
+html[data-layout="mobile"] #page-inventory .eq-tabs{top:0}
+html[data-layout="mobile"] #page-inventory .eq-tab{font-size:13px;gap:5px;flex-direction:column;height:58px}
+html[data-layout="mobile"] #page-inventory .eq-tab .cnt{display:none}
+html[data-layout="mobile"] #page-inventory .eq-head h2{font-size:20px}
+html[data-layout="mobile"] #page-inventory .eq-head .tile{width:52px;height:52px;border-radius:16px}
+html[data-layout="mobile"] #page-inventory .eq-tools .btn{flex:1}
+html[data-layout="mobile"] #page-inventory .eq-btns .btn{flex:1}
+html[data-layout="mobile"] #page-inventory .chart-wrap{height:230px}
+
+/* محتوى ورقة التقرير المفصل (خارج #page-inventory) */
+.inv-mtools{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 10px}
+.inv-mlist{display:flex;flex-direction:column;gap:6px;max-height:44vh;overflow:auto;padding:4px;border:1px solid var(--card-border);border-radius:16px;background:var(--card-2)}
+.inv-mrow{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:12px;cursor:pointer;font-size:14px}
+.inv-mrow:hover{background:var(--card)}
+.inv-mrow input{flex:none;width:17px;height:17px;accent-color:var(--accent)}
+.inv-mname{flex:1;font-weight:600}
+.inv-mcnt{font-size:11.5px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}

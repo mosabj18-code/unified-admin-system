@@ -1,0 +1,47 @@
+/* ================= وحدة: سجل الوارد والصادر (#page-wared) ================= */
+#page-wared .serial{display:inline-block;padding:2px 9px;border-radius:8px;background:var(--card-2);border:1px solid var(--card-border);font-weight:700;font-size:12.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
+#page-wared .thumb{width:44px;height:44px;border-radius:10px;object-fit:cover;border:1px solid var(--card-border);cursor:zoom-in;display:block}
+#page-wared .fchip{width:44px;height:44px;border-radius:10px;display:grid;place-items:center;font-size:11px;font-weight:800;background:var(--info-bg);color:var(--info-text);cursor:pointer}
+#page-wared .nochip{color:var(--muted)}
+#page-wared .subj{white-space:normal;min-width:200px;max-width:340px}
+#page-wared .subj .late{display:inline-block;margin-inline-start:6px}
+#page-wared tr.overdue td{background:color-mix(in srgb,var(--danger-bg) 55%,transparent)}
+#page-wared .wr-chart{display:grid;grid-template-columns:repeat(12,1fr);gap:6px;align-items:end;height:180px;padding-top:8px}
+#page-wared .wr-col{display:flex;flex-direction:column;align-items:center;gap:6px;height:100%}
+#page-wared .wr-bars{flex:1;width:100%;display:flex;align-items:flex-end;justify-content:center;gap:3px}
+#page-wared .wr-bar{width:min(14px,40%);border-radius:5px 5px 2px 2px;min-height:2px}
+#page-wared .wr-bar.in{background:var(--accent)} #page-wared .wr-bar.out{background:#E39A61}
+#page-wared .wr-col small{font-size:11px;color:var(--muted)}
+#page-wared .wr-col.now small{color:var(--accent-text);font-weight:700}
+#page-wared .wr-legend{display:flex;gap:14px;font-size:13px;color:var(--muted)}
+#page-wared .wr-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-inline-end:5px;vertical-align:middle}
+.wr-att{display:flex;align-items:center;gap:12px;padding:10px;border:1px dashed var(--card-border);border-radius:14px;background:var(--card-2)}
+.wr-att img{width:64px;height:64px;border-radius:10px;object-fit:cover}
+.wr-att .fchip{width:64px;height:64px;border-radius:10px;display:grid;place-items:center;font-weight:800;background:var(--info-bg);color:var(--info-text)}
+.wr-att .grow{flex:1;min-width:0}
+.wr-att b{display:block;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wr-att small{color:var(--muted);font-size:12.5px}
+.wr-viewer{display:block;max-width:100%;max-height:70vh;margin:0 auto;border-radius:12px}
+.lh-prev{max-width:260px;max-height:70px;border-radius:8px;border:1px solid var(--card-border);background:#fff;object-fit:contain}
+#page-wared .attwrap{display:flex;align-items:center;gap:5px}
+#page-wared .attmore{font-size:11px;font-weight:800;color:var(--muted);background:var(--card-2);border:1px solid var(--card-border);border-radius:8px;padding:3px 6px;cursor:pointer;white-space:nowrap}
+#page-wared .wr-chk{width:18px;height:18px;accent-color:var(--accent);cursor:pointer;vertical-align:middle}
+#page-wared .selbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;border-radius:14px;background:var(--accent-soft);color:var(--accent-text);font-size:13.5px;font-weight:700;margin-bottom:12px}
+#page-wared .selbar .grow{flex:1;min-width:120px}
+.wr-atts{display:flex;flex-direction:column;gap:8px}
+.wr-thumbs{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-bottom:12px}
+.wr-thumbs img,.wr-thumbs .fchip{width:54px;height:54px;border-radius:10px;object-fit:cover;border:2px solid var(--card-border);cursor:pointer}
+.wr-thumbs .fchip{display:grid;place-items:center;font-weight:800;font-size:11px;background:var(--info-bg);color:var(--info-text)}
+.wr-thumbs .sel{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+#page-wared .wr-storage{display:flex;gap:12px;align-items:flex-start;padding:12px;border-radius:14px;background:var(--card-2);border:1px solid var(--card-border)}
+#page-wared .wr-storage .grow{flex:1;min-width:0}
+#page-wared .wr-storage b{display:block;font-size:14.5px;margin-bottom:3px}
+#page-wared .wr-storage small{display:block;color:var(--muted);font-size:12.5px;line-height:1.7}
+html[data-layout="mobile"] #page-wared .wr-chart{gap:3px;height:150px}
+html[data-layout="mobile"] #page-wared .wr-col small{font-size:9.5px}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}
+  .toast .bar{animation-duration:var(--dur,4s)!important}
+}
+@media print{.topbar,.sidebar,.bottom-nav,.toasts{display:none!important}body{overflow:visible}}

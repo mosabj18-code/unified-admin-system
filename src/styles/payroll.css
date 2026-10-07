@@ -1,0 +1,11 @@
+/* ================= وحدة: دفتر الرواتب (#page-payroll) ================= */
+#page-payroll .pr-legend{display:flex;gap:14px;font-size:13px;color:var(--muted);font-weight:500}
+#page-payroll .pr-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-inline-end:5px;vertical-align:middle}
+#page-payroll .pr-chart svg{width:100%;height:auto;max-height:260px;display:block;margin:0 auto}
+#page-payroll .emp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+#page-payroll .emp-card{padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+#page-payroll .emp-card .top{display:flex;align-items:center;gap:12px}
+#page-payroll .emp-card .av{width:42px;height:42px;border-radius:13px;background:var(--accent-soft);color:var(--accent-text);display:grid;place-items:center;font-family:var(--f-display);font-weight:800;flex:none}
+#page-payroll .emp-card b{display:block;font-size:15px}
+#page-payroll .emp-card small{color:var(--muted);font-size:12.5px}
+#page-payroll .emp-card .row{justify-content:space-between}

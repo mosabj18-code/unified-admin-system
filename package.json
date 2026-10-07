@@ -1,0 +1,15 @@
+{
+  "name": "unified-admin-system",
+  "version": "2.14.0",
+  "private": true,
+  "description": "النظام الإداري الموحّد — تطبيق PWA أوفلاين يجمع سبع وحدات إدارية",
+  "scripts": {
+    "build": "python3 build.py $npm_config_v",
+    "serve": "python3 -m http.server 8765",
+    "test": "./scripts/test.sh"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0",
+    "xlsx": "0.18.5"
+  }
+}

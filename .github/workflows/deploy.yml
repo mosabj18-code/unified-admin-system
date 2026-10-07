@@ -1,0 +1,90 @@
+name: بناء ونشر
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: قراءة رقم الإصدار من shell.js
+        id: ver
+        run: echo "v=$(grep -oP \"APP_VERSION = '\\K[0-9.]+\" src/shell.js)" >> "$GITHUB_OUTPUT"
+
+      - name: تثبيت terser
+        run: npm install -g terser
+
+      - name: البناء
+        run: python3 build.py "${{ steps.ver.outputs.v }}"
+
+      - name: تثبيت أدوات الفحص
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: الفحص على dist
+        run: |
+          mkdir -p .testsrv && cp -r dist .testsrv/unified-admin
+          python3 -m http.server 8765 --directory .testsrv &
+          sleep 3
+          fail=0
+          for t in tests/test*.js; do
+            echo "▶ $t"
+            node "$t" || fail=1
+          done
+          exit $fail
+
+      - name: رفع لقطات الفحص عند الفشل
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: screenshots/
+          if-no-files-found: ignore
+
+      - name: حزمة الإصدار
+        run: |
+          mkdir -p release
+          ls -la release || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ steps.ver.outputs.v }}
+          path: release/
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

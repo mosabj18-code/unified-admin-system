@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="light" data-layout="desktop">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>النظام الإداري الموحّد</title>
+<meta name="description" content="المخزون والرواتب والمراسلات والوقود والعهد من مكان واحد، يعمل دون إنترنت.">
+<meta name="theme-color" content="#1B3B2F">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="النظام الموحّد">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alexandria:wght@500;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
+<script>
+/*#BOOT#*/
+</script>
+<style>
+/*#STYLES#*/
+</style>
+</head>
+<body>
+<div class="splash" id="splash" aria-hidden="true">
+  <div class="splash-in">
+    <img src="icons/icon-192.png" alt="">
+    <h2>النظام الإداري الموحّد</h2>
+    <p id="splashVer">الإصدار</p>
+    <div class="loader"><i></i></div>
+  </div>
+</div>
+
+<div id="frame">
+  <div class="app-shell">
+    <!-- القائمة الجانبية -->
+    <aside class="sidebar" id="sidebar" aria-label="القائمة الرئيسية">
+      <div class="sb-head">
+        <img class="sb-logo" src="icons/icon-192.png" alt="">
+        <div><div class="sb-name">النظام الإداري الموحّد</div><div class="sb-sub">كل الوحدات بمكان واحد</div></div>
+      </div>
+      <nav class="sb-scroll" id="sbNav"></nav>
+      <div class="sb-foot">
+        <button class="ver-chip" id="verChip" onclick="showChangelog()"></button>
+        <span class="online" id="onlineState"><i></i><span>متصل</span></span>
+      </div>
+    </aside>
+
+    <div class="main-col">
+      <header class="topbar">
+        <button class="tb-btn" id="menuBtn" onclick="openSidebar()" aria-label="فتح القائمة">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+        </button>
+        <div class="topbar-title">
+          <h1 id="pageTitle">الرئيسية</h1>
+          <div class="topbar-date num" id="topDate"></div>
+        </div>
+        <div class="tb-actions">
+          <button class="tb-btn" id="layoutBtn" onclick="toggleLayout()"></button>
+          <button class="tb-btn" id="themeBtn" onclick="toggleTheme()"></button>
+          <button class="tb-btn" id="bellBtn" onclick="openNotifCenter()" aria-label="مركز الإشعارات">
+            <svg class="ico" viewBox="0 0 24 24"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg>
+            <span class="dot num" id="bellDot" hidden></span>
+          </button>
+        </div>
+      </header>
+
+      <main class="main-content" id="main">
+        <div class="page-wrap">
+          <section class="module-page" id="page-home"></section>
+          <!-- حاويات الوحدات: عند دمج أي وحدة يُستبدل محتواها ويُحذف data-placeholder -->
+          <section class="module-page" id="page-equipment" data-placeholder></section>
+          <section class="module-page" id="page-payroll" data-placeholder></section>
+          <section class="module-page" id="page-wared" data-placeholder></section>
+          <section class="module-page" id="page-fuel" data-placeholder></section>
+          <section class="module-page" id="page-inventory" data-placeholder></section>
+          <section class="module-page" id="page-cleaning" data-placeholder></section>
+          <section class="module-page" id="page-custody" data-placeholder></section>
+          <section class="module-page" id="page-backup"></section>
+          <section class="module-page" id="page-guide"></section>
+          <section class="module-page" id="page-settings"></section>
+        </div>
+      </main>
+
+      <nav class="bottom-nav" id="bottomNav" aria-label="اختصارات"></nav>
+    </div>
+  </div>
+  <div class="sidebar-backdrop" onclick="closeSidebar()"></div>
+  <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+</div>
+<input type="file" id="restoreInput" accept=".json,application/json" hidden>
+
+<!-- مكتبات مشتركة لكل الوحدات (نسخة واحدة) -->
+<script src="lib/xlsx.mini.js"></script>
+<script src="lib/chart.mini.js"></script>
+
+<!--#SCRIPTS#-->
+</body>
+</html>

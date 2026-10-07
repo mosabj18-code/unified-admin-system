@@ -1,0 +1,116 @@
+/* ================= وحدة: إدارة العهد (#page-custody) ================= */
+#page-custody .eq-head{display:flex;align-items:center;gap:16px;margin-bottom:16px;flex-wrap:wrap}
+#page-custody .eq-head .tile{width:64px;height:64px;border-radius:20px;display:grid;place-items:center;background:rgba(236,72,153,.14);flex:none}
+#page-custody .eq-head .tile .i3d,#page-custody .eq-head .tile .i3d-fb{--s:44px}
+#page-custody .eq-head h2{font-family:var(--f-display);font-size:24px;font-weight:800;line-height:1.25}
+#page-custody .eq-head p{color:var(--muted);font-size:14px}
+#page-custody .eq-head .grow{flex:1;min-width:200px}
+#page-custody .eq-tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+#page-custody .eq-link{font-size:12.5px}
+
+#page-custody .eq-tabs{display:flex;gap:4px;padding:4px;background:var(--card);border:1px solid var(--card-border);border-radius:16px;margin-bottom:14px;position:sticky;top:0;z-index:5;box-shadow:var(--shadow-sm)}
+#page-custody .eq-tab{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;height:46px;border-radius:12px;font-weight:700;font-size:14.5px;color:var(--muted)}
+#page-custody .eq-tab .i3d,#page-custody .eq-tab .i3d-fb{--s:26px}
+#page-custody .eq-tab:hover{background:var(--card-2)}
+#page-custody .eq-tab.active{background:var(--accent-soft);color:var(--accent-text)}
+#page-custody .eq-tab .cnt{font-size:12px;font-weight:700;padding:1px 8px;border-radius:9px;background:var(--card-2);color:var(--muted)}
+#page-custody .eq-tab.active .cnt{background:var(--card);color:var(--accent-text)}
+
+#page-custody .eq-filter{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:10px 12px;margin-bottom:14px}
+#page-custody .eq-filter .lbl{font-size:13px;font-weight:700;color:var(--muted);display:flex;align-items:center;gap:6px}
+#page-custody .eq-filter .on{color:var(--accent-text)}
+#page-custody .inp{height:42px;border-radius:12px;border:1px solid var(--card-border);background:var(--card-2);padding:0 12px;font-size:14px;outline:none;min-width:0;transition:border-color .15s,box-shadow .15s}
+#page-custody .inp:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+#page-custody .inp[readonly]{background:transparent;border-style:dashed;color:var(--muted)}
+#page-custody .inp.invalid{border-color:var(--danger);box-shadow:0 0 0 3px var(--danger-bg);animation:eqShake .3s}
+@keyframes eqShake{25%{transform:translateX(4px)}75%{transform:translateX(-4px)}}
+#page-custody .eq-filter .inp[type=text]{flex:1;min-width:160px}
+
+#page-custody .eq-page{display:none}
+#page-custody .eq-page.active{display:block;animation:pageIn .2s ease-out}
+
+#page-custody .eq-form{padding:20px;margin-bottom:16px;transition:box-shadow .2s,border-color .2s}
+#page-custody .eq-form.editing{border-color:var(--warn-text);box-shadow:0 0 0 3px var(--warn-bg)}
+#page-custody .eq-form h3{font-family:var(--f-display);font-size:17px;display:flex;align-items:center;gap:10px;margin-bottom:14px}
+#page-custody .eq-form h3 .i3d,#page-custody .eq-form h3 .i3d-fb{--s:30px}
+#page-custody .eq-edit-note{display:none;margin:-4px 0 14px;padding:9px 13px;border-radius:12px;background:var(--warn-bg);color:var(--warn-text);font-size:13.5px;font-weight:600}
+#page-custody .eq-form.editing .eq-edit-note{display:block}
+#page-custody .eq-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+#page-custody .field{display:flex;flex-direction:column;gap:5px;min-width:0}
+#page-custody .field .inp{width:100%}
+#page-custody .field label{font-size:13px;color:var(--muted);font-weight:600}
+#page-custody .field label i{color:var(--danger);font-style:normal}
+#page-custody .eq-btns{display:flex;gap:9px;margin-top:16px;flex-wrap:wrap}
+#page-custody .bal-ok{color:var(--success-text)!important;font-weight:700}
+#page-custody .bal-low{color:var(--warn-text)!important;font-weight:700}
+#page-custody .bal-out{color:var(--danger-text)!important;font-weight:700}
+
+#page-custody .eq-table-card{overflow:hidden;margin-bottom:16px}
+#page-custody .eq-table-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;border-bottom:1px solid var(--card-border);flex-wrap:wrap}
+#page-custody .eq-table-head h3{font-family:var(--f-display);font-size:16px;display:flex;align-items:center;gap:8px}
+#page-custody .eq-scroll{overflow-x:auto}
+#page-custody table{width:100%;border-collapse:collapse;font-size:14px}
+#page-custody th{background:var(--card-2);padding:10px 12px;text-align:start;font-size:12.5px;font-weight:600;color:var(--muted);white-space:nowrap}
+#page-custody td{padding:10px 12px;border-bottom:1px solid var(--card-border);white-space:nowrap}
+#page-custody tbody tr:last-child td{border-bottom:0}
+#page-custody tbody tr:hover td{background:var(--card-2)}
+#page-custody tr.row-edit td{background:var(--warn-bg)!important}
+#page-custody tr.row-new td{animation:eqFlash 1.6s ease-out}
+@keyframes eqFlash{from{background:var(--accent-soft)}}
+#page-custody td.n{color:var(--muted)}
+#page-custody .qty-in{color:var(--success-text);font-weight:700}
+#page-custody .qty-out{color:var(--danger-text);font-weight:700}
+#page-custody .qty-bal{color:var(--info-text);font-weight:700}
+#page-custody .ib{width:34px;height:34px;border-radius:10px;display:inline-grid;place-items:center;border:1px solid var(--card-border);background:var(--card);font-size:15px}
+#page-custody .ib:hover{background:var(--card-2)}
+#page-custody .ib.del:hover{background:var(--danger-bg);border-color:transparent}
+#page-custody .acts{display:flex;gap:6px}
+#page-custody input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent);cursor:pointer}
+#page-custody .eq-empty{text-align:center;padding:34px 16px!important;color:var(--muted);white-space:normal}
+
+#page-custody .eq-alert{display:none;padding:12px 16px;border-radius:16px;margin-bottom:14px;font-size:14px;line-height:1.8}
+#page-custody .eq-alert.show{display:block}
+#page-custody .eq-alert.out{background:var(--danger-bg);color:var(--danger-text)}
+#page-custody .eq-alert.low{background:var(--warn-bg);color:var(--warn-text)}
+#page-custody .eq-kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px}
+#page-custody .kpi{padding:14px 16px;display:flex;flex-direction:column;gap:2px}
+#page-custody .kpi small{font-size:12.5px;color:var(--muted);font-weight:600}
+#page-custody .kpi b{font-family:var(--f-display);font-size:26px;line-height:1.2}
+#page-custody .kpi.in b{color:var(--success-text)} #page-custody .kpi.out b{color:var(--danger-text)}
+#page-custody .kpi.bal b{color:var(--info-text)} #page-custody .kpi.low b{color:var(--warn-text)}
+#page-custody .kpi.low{cursor:pointer}
+#page-custody .eq-chart{padding:18px;margin-bottom:16px}
+#page-custody .eq-chart-top{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+#page-custody .eq-chart-top h3{font-family:var(--f-display);font-size:16px}
+#page-custody .chart-wrap{position:relative;height:280px}
+#page-custody .eq-stock-tools{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+
+html[data-layout="mobile"] #page-custody .eq-kpis{grid-template-columns:1fr 1fr}
+html[data-layout="mobile"] #page-custody .eq-kpis .kpi:last-child{grid-column:1/-1}
+html[data-layout="mobile"] #page-custody .eq-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+html[data-layout="mobile"] #page-custody .eq-filter .inp{flex:1 1 40%}
+html[data-layout="mobile"] #page-custody .eq-grid .field.wide{grid-column:1/-1}
+html[data-layout="mobile"] #page-custody .eq-tabs{top:0}
+html[data-layout="mobile"] #page-custody .eq-tab{font-size:13px;gap:5px;flex-direction:column;height:58px}
+html[data-layout="mobile"] #page-custody .eq-tab .cnt{display:none}
+html[data-layout="mobile"] #page-custody .eq-head h2{font-size:20px}
+html[data-layout="mobile"] #page-custody .eq-head .tile{width:52px;height:52px;border-radius:16px}
+html[data-layout="mobile"] #page-custody .eq-tools .btn{flex:1}
+html[data-layout="mobile"] #page-custody .eq-btns .btn{flex:1}
+html[data-layout="mobile"] #page-custody .chart-wrap{height:230px}
+/* خاص بالعهد: خمسة تبويبات + بطاقات الأشخاص */
+#page-custody .eq-tabs{overflow-x:auto;scrollbar-width:none}
+#page-custody .eq-tabs::-webkit-scrollbar{display:none}
+#page-custody .eq-tab{flex:1 0 auto;padding:0 12px}
+#page-custody .cu-persons{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
+#page-custody .cu-person{padding:14px 16px}
+#page-custody .cu-person h4{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-family:var(--f-display);font-size:15.5px;margin-bottom:4px}
+#page-custody .cu-person .who{display:flex;align-items:center;gap:8px;min-width:0}
+#page-custody .cu-person .who .i3d,#page-custody .cu-person .who .i3d-fb{--s:26px}
+#page-custody .cu-person .meta{color:var(--muted);font-size:12.5px;font-weight:500;margin-bottom:8px}
+#page-custody .cu-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px dashed var(--card-border);font-size:13.5px}
+#page-custody .cu-item .q{font-weight:700;font-variant-numeric:tabular-nums}
+#page-custody .cu-item .q.on{color:var(--success-text)} #page-custody .cu-item .q.off{color:var(--muted)}
+#page-custody .cu-person .foot{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+html[data-layout="mobile"] #page-custody .cu-persons{grid-template-columns:1fr}
+html[data-layout="mobile"] #page-custody .eq-tab{flex:0 0 auto;height:58px}

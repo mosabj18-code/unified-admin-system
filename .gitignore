@@ -1,0 +1,11 @@
+# مخرجات البناء — مُولَّدة، لا تُرفع
+unified-admin/index.html
+dist/
+release/
+screenshots/
+distsrv/
+
+node_modules/
+npm-debug.log*
+.DS_Store
+*.zip

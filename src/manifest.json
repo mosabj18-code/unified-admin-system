@@ -1,0 +1,4 @@
+{
+  "styles": ["00-shell.css", "equipment.css", "payroll.css", "wared.css", "fuel.css", "inventory.css", "cleaning.css", "custody.css"],
+  "modules": ["wared.js", "payroll.js", "equipment.js", "fuel.js", "inventory.js", "cleaning.js", "custody.js"]
+}
