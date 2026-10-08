@@ -140,12 +140,62 @@ let w = await pop; await w.waitForLoadState('domcontentloaded');
 ok(/٣ \(٨١ حبة\)/.test(await w.content()), 'سند الصرف يعرض ٣ كرتونة ومعادلها ٨١ حبة');
 await w.close();
 
+// ١٣. كراتين وحبات فرط بعملية واحدة: ١ كرتونة (٢٠) + ١٠ حبات = ٣٠
+const tuna = () => p.evaluate(() => (INV.computeStock().find(s => s.key === 'تونة||حبة') || {}).balance);
+await p.evaluate(() => INV.switchTab('in'));
+await fill('#inv-in-name', 'تونة'); await p.selectOption('#inv-in-unit', 'كرتونة'); await p.waitForTimeout(80);
+ok(await p.isVisible('#inv-in-loose'), 'حقل الحبات الفرط يظهر مع الكرتونة في الإضافة');
+await p.selectOption('#inv-in-base', 'حبة'); await fill('#inv-in-per', 20); await fill('#inv-in-qty', 1); await fill('#inv-in-loose', 10); await p.waitForTimeout(80);
+ok(/١ كرتونة \+ ١٠ حبة = ٣٠ حبة/.test(await p.textContent('#inv-in-pack-hint')), 'تلميح الإضافة: ١ كرتونة + ١٠ حبة = ٣٠ حبة');
+const nAdds = await p.evaluate(() => INV._data.additions.length);
+await p.evaluate(() => { INV.addItem(); }); await p.waitForTimeout(400);
+ok(await p.evaluate(() => INV._data.additions.length) === nAdds + 1, 'الإضافة سطر واحد فقط');
+ok(await tuna() === 30, 'رصيد التونة ٣٠ حبة (صار ' + await tuna() + ')');
+ok(await p.evaluate(() => { const r = INV._data.additions.at(-1); return r.qty === 1 && r.per === 20 && r.loose === 10; }), 'السجل محفوظ: ١ كرتونة × ٢٠ + ١٠ فرط');
+ok(/\+١ \+ ١٠ حبة \(٣٠ حبة\)/.test(await p.evaluate(() => document.querySelector('#inv-in-tbody tr').textContent)), 'جدول الإضافات يعرض ١ + ١٠ حبة (٣٠ حبة)');
+
+// الصرف المختلط بسطر واحد: ١ كرتونة + ٥ حبات = ٢٥
+await p.evaluate(() => INV.switchTab('out'));
+await p.selectOption('#inv-out-name', 'تونة||حبة'); await p.waitForTimeout(80);
+await p.selectOption('#inv-out-unit', 'حبة'); await p.waitForTimeout(50);
+ok(!(await p.isVisible('#inv-out-loose')), 'حقل الفرط مخفي عند الصرف بالحبة');
+await p.selectOption('#inv-out-unit', 'كرتونة'); await p.waitForTimeout(50);
+ok(await p.isVisible('#inv-out-loose'), 'حقل الفرط يظهر عند الصرف بالكرتونة');
+await fill('#inv-out-qty', 1); await fill('#inv-out-loose', 5); await fill('#inv-out-dept', 'سجن الوسطى'); await p.waitForTimeout(80);
+ok(/٢٥ حبة/.test(await p.textContent('#inv-out-pack-hint')) && /يبقى ٥ حبة/.test(await p.textContent('#inv-out-pack-hint')), 'تلميح الصرف: = ٢٥ حبة، يبقى ٥');
+const nOuts = await p.evaluate(() => INV._data.withdrawals.length);
+await p.evaluate(() => INV.withdrawItem()); await p.waitForTimeout(300);
+ok(await p.evaluate(() => INV._data.withdrawals.length) === nOuts + 1, 'الصرف سطر واحد فقط');
+ok(await tuna() === 5, 'بعد صرف ١ كرتونة + ٥ حبات: ٥ حبات (صار ' + await tuna() + ')');
+// الفرط وحده بدون كراتين، ويُرفض إذا تجاوز الرصيد
+await p.selectOption('#inv-out-name', 'تونة||حبة'); await p.waitForTimeout(60); await p.selectOption('#inv-out-unit', 'كرتونة');
+await fill('#inv-out-qty', 0); await fill('#inv-out-loose', 6); await fill('#inv-out-dept', 'سجن الوسطى');
+await p.evaluate(() => INV.withdrawItem()); await p.waitForTimeout(250);
+ok(await tuna() === 5, 'صرف ٦ حبات فرط من ٥ مرفوض');
+// تعديل الصرف يرجع الكراتين والفرط
+const tIdx = await p.evaluate(() => INV._data.withdrawals.findIndex(r => r.name === 'تونة'));
+await p.evaluate(i => INV.editOut(i), tIdx); await p.waitForTimeout(250);
+ok(await p.inputValue('#inv-out-qty') === '1' && await p.inputValue('#inv-out-loose') === '5', 'التعديل يرجع ١ كرتونة + ٥ فرط');
+await fill('#inv-out-loose', 8); await p.evaluate(() => INV.withdrawItem()); await p.waitForTimeout(250);
+ok(await tuna() === 2, 'تعديل الفرط إلى ٨: يبقى حبتان (صار ' + await tuna() + ')');
+// السند يعرض الكراتين والفرط
+pop = ctx.waitForEvent('page');
+await p.evaluate(i => INV.printReceipt(i), tIdx);
+w = await pop; await w.waitForLoadState('domcontentloaded');
+ok(/١ \+ ٨ حبة \(٢٨ حبة\)/.test(await w.content()), 'سند الصرف يعرض ١ + ٨ حبة (٢٨ حبة)');
+await w.close();
+// إلغاء التعبئة ممنوع مع سجلات فيها فرط
+await p.evaluate(() => INV.openPackSheet('تونة')); await p.waitForTimeout(300);
+await p.evaluate(() => { INV.removePack(); }); await p.waitForTimeout(300);
+ok(await p.evaluate(() => !!JSON.parse(localStorage.getItem('inv_p'))['تونة']), 'إلغاء تعبئة صنف له سجلات فيها فرط مرفوض');
+await p.evaluate(() => document.querySelectorAll('.overlay').forEach(e => e.remove()));
+
 // لقطة جوال
-await p.evaluate(() => { INV.switchTab('out'); }); await p.waitForTimeout(200);
-await p.selectOption('#inv-out-name', 'جبنة||حبة'); await p.selectOption('#inv-out-unit', 'كرتونة'); await fill('#inv-out-qty', 1); await p.waitForTimeout(150);
+await p.evaluate(() => { INV.cancelEditOut(true); INV.switchTab('out'); }); await p.waitForTimeout(200);
+await p.selectOption('#inv-out-name', 'جبنة||حبة'); await p.selectOption('#inv-out-unit', 'كرتونة'); await fill('#inv-out-qty', 0); await fill('#inv-out-loose', 7); await p.waitForTimeout(150);
 await p.evaluate(() => { document.getElementById('toasts').innerHTML = ''; document.getElementById('inv-form-out').scrollIntoView(); });
 await p.screenshot({ path:SHOT('inv_units_out_mobile.png') });
-await p.evaluate(() => { INV.switchTab('in'); }); await fill('#inv-in-name', 'جبنة'); await p.selectOption('#inv-in-unit', 'كرتونة'); await fill('#inv-in-qty', 4); await p.waitForTimeout(150);
+await p.evaluate(() => { INV.switchTab('in'); }); await fill('#inv-in-name', 'جبنة'); await p.selectOption('#inv-in-unit', 'كرتونة'); await fill('#inv-in-qty', 4); await fill('#inv-in-loose', 10); await p.waitForTimeout(150);
 await p.evaluate(() => { document.getElementById('toasts').innerHTML = ''; document.getElementById('inv-form-in').scrollIntoView(); });
 await p.screenshot({ path:SHOT('inv_units_in_mobile.png') });
 await p.evaluate(() => { INV.switchTab('stock'); }); await p.waitForTimeout(300);
