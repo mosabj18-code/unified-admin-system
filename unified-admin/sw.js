@@ -1,6 +1,6 @@
 /* النظام الإداري الموحّد — Service Worker
    يجب أن يطابق APP_VERSION في index.html */
-const APP_VERSION = '2.14.0';
+const APP_VERSION = '2.14.1';
 const CACHE = 'unified-admin-v' + APP_VERSION;
 
 /* لا تكرر أي مسار هنا — addAll يفشل عند التكرار */
@@ -17,10 +17,21 @@ const CORE = [
   './icons/badge-96.png'
 ];
 
+/* Cloudflare يحوّل /index.html إلى / (307) — والمتصفح يرفض فتح صفحة من استجابة
+   محوَّلة وهو أوفلاين، فنعيد بناءها نظيفة قبل التخزين */
+const clean = async res => res && res.redirected
+  ? new Response(await res.blob(), { status: res.status, statusText: res.statusText, headers: res.headers })
+  : res;
+
 self.addEventListener('install', e => {
   e.waitUntil((async () => {
     const c = await caches.open(CACHE);
-    await Promise.all(CORE.map(u => c.add(u).catch(() => {})));
+    await Promise.all(CORE.map(async u => {
+      try {
+        const res = await fetch(u, { cache: 'reload' });
+        if (res.ok) await c.put(u, await clean(res));
+      } catch(err){}
+    }));
   })());
 });
 
@@ -47,10 +58,13 @@ self.addEventListener('fetch', e => {
     e.respondWith((async () => {
       try {
         const res = await fetch(req);
-        const c = await caches.open(CACHE); c.put('./index.html', res.clone());
+        /* لا نخزّن رد التحويل نفسه (opaqueredirect) مكان الصفحة */
+        if (res.ok && res.type === 'basic'){
+          const c = await caches.open(CACHE); c.put('./index.html', await clean(res.clone()));
+        }
         return res;
       } catch(err){
-        return (await caches.match('./index.html')) || (await caches.match('./')) || Response.error();
+        return (await clean(await caches.match('./index.html'))) || (await clean(await caches.match('./'))) || Response.error();
       }
     })());
     return;
