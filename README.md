@@ -16,11 +16,11 @@ python3 -m http.server 8765
 ## البناء
 
 ```bash
-python3 build.py 2.15.0
+python3 build.py 2.16.0
 ```
 
 يجمّع `src/` إلى `unified-admin/index.html` (نسخة تطوير مقروءة)، يصغّرها في `dist/`، وينتج في `release/` الملفَّ الواحد والحزمة. يرفض البناء إذا اختلف `APP_VERSION` بين `src/shell.js` و`unified-admin/sw.js`.
-لتغيير مجلد المخرجات: `OUT_DIR=/path python3 build.py 2.15.0`.
+لتغيير مجلد المخرجات: `OUT_DIR=/path python3 build.py 2.16.0`.
 
 ## الفحص
 
