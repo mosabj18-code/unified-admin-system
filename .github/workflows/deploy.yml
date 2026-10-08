@@ -30,7 +30,10 @@ jobs:
 
       - name: قراءة رقم الإصدار من shell.js
         id: ver
-        run: echo "v=$(grep -oP \"APP_VERSION = '\\K[0-9.]+\" src/shell.js)" >> "$GITHUB_OUTPUT"
+        run: |
+          v=$(grep -oP "APP_VERSION = '\K[0-9.]+" src/shell.js)
+          test -n "$v"
+          echo "v=$v" >> "$GITHUB_OUTPUT"
 
       - name: تثبيت terser
         run: npm install -g terser
