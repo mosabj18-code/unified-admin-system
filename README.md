@@ -16,11 +16,11 @@ python3 -m http.server 8765
 ## البناء
 
 ```bash
-python3 build.py 2.14.0
+python3 build.py 2.15.0
 ```
 
 يجمّع `src/` إلى `unified-admin/index.html` (نسخة تطوير مقروءة)، يصغّرها في `dist/`، وينتج في `release/` الملفَّ الواحد والحزمة. يرفض البناء إذا اختلف `APP_VERSION` بين `src/shell.js` و`unified-admin/sw.js`.
-لتغيير مجلد المخرجات: `OUT_DIR=/path python3 build.py 2.14.0`.
+لتغيير مجلد المخرجات: `OUT_DIR=/path python3 build.py 2.15.0`.
 
 ## الفحص
 
@@ -40,6 +40,7 @@ npx playwright install chromium
 | `tests/test_xl.js` | الاستيراد من Excel في الوحدات الأربع |
 | `tests/test_mini.js` | المكتبتان المصغّرتان مقابل SheetJS الأصلية |
 | `tests/test_inv_report.js` | تقرير الطعام المفصل وسندات الإدخال |
+| `tests/test_inv_units.js` | الطعام بوحدات متعددة: كرتونة وحبة، الصرف المختلط، التوحيد ومنع السالب |
 | `tests/test_stamp.js` | اختيار موضع ختم «منجز» في الصورة |
 | `tests/test_stamp_e2e.js` | مسار الختم الكامل من الواجهة |
 | `tests/test_fu_month.js` | التقرير الشهري للوقود وعزل الشهر |

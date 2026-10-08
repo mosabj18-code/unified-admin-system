@@ -145,6 +145,9 @@ const withdrawals = [
 const extraItems=['\u0643\u0644\u0628\u0634\u0627\u062a','\u0642\u0641\u0644','\u0634\u0648\u0627\u062f\u0631','\u0645\u062e\u062f\u0629','\u0648\u062c\u0647 \u0641\u0631\u0634\u0627\u062a','\u062d\u0631\u0627\u0645\u0627\u062a','\u0628\u0637\u0627\u0631\u064a\u0629 \u0644\u0627\u0628\u062a\u0648\u0628','\u0648\u0631\u0642 A4','\u0631\u0635\u0627\u0635 \u0643\u0644\u0627\u0634\u0646','\u0628\u0631\u0645\u064a\u0644 1500 \u0644\u062a\u0631','\u0628\u0631\u0645\u064a\u0644 2000 \u0644\u062a\u0631'];
 const DEFAULT_DEPTS = ['سجن خانيونس','سجن الوسطى','عساكر القوة','سحور العساكر','توزيع على العساكر'];
 const UNITS = ['علبة','كرتونة','قطعة','كيلو','عدد','حبة','طقم','دستة'];
+const PACK_UNITS = ['كرتونة','دستة','طقم']; // وحدات تعبئة تحوي وحدات أصغر
+// تعبئة كل صنف: { 'جبنة': { base:'حبة', pack:'كرتونة', per:27 } } — localStorage inv_p
+const packs = {};
 
 let gfItem = '', gfFrom = '', gfTo = '', gfDept = '';
 let chartInstance = null, currentChartType = 'balance', currentTab = 'in';
@@ -163,6 +166,7 @@ function saveData(){
   try {
     localStorage.setItem('inv_a', JSON.stringify(additions));
     localStorage.setItem('inv_w', JSON.stringify(withdrawals));
+    localStorage.setItem('inv_p', JSON.stringify(packs));
   } catch(e){
     notify({ type:'error', title:'تعذّر الحفظ على الجهاز', msg: e.name === 'QuotaExceededError' ? 'مساحة التخزين في المتصفح ممتلئة. انزل نسخة احتياطية وافرغ مساحة.' : 'السبب: ' + e.message, page:'inventory' });
   }
@@ -174,6 +178,7 @@ function loadData(){
     const a = localStorage.getItem('inv_a'), w = localStorage.getItem('inv_w');
     if (a){ const arr = JSON.parse(a); additions.length = 0; arr.forEach(r => additions.push(r)); }
     if (w){ const arr = JSON.parse(w); withdrawals.length = 0; arr.forEach(r => withdrawals.push(r)); }
+    replacePacks(JSON.parse(localStorage.getItem('inv_p') || '{}'));
     if (!a && !w){ // أول تشغيل: نحفظ البيانات الأولية لتدخل في الإحصاء والنسخ الاحتياطي
       localStorage.setItem('inv_a', JSON.stringify(additions));
       localStorage.setItem('inv_w', JSON.stringify(withdrawals));
@@ -222,6 +227,7 @@ async function linkSaveFile(){
       if (ok){
         additions.length = 0; (data.additions || []).forEach(r => additions.push(r));
         withdrawals.length = 0; (data.withdrawals || []).forEach(r => withdrawals.push(r));
+        replacePacks(data.packs);
         imported = true;
       }
     }
@@ -247,7 +253,7 @@ async function writeToLinkedFile(){
       }
     }
     const writable = await fileHandle.createWritable();
-    await writable.write(JSON.stringify({ additions, withdrawals, exported:new Date().toISOString() }, null, 2));
+    await writable.write(JSON.stringify({ additions, withdrawals, packs, exported:new Date().toISOString() }, null, 2));
     await writable.close();
     writeWarned = false;
   } catch(e){}
@@ -265,17 +271,64 @@ async function tryReconnectFile(){
 
 /* ---------- الحسابات ---------- */
 function stockKey(name, unit){ return name + '||' + (unit || ''); }
+
+/* ---------- الوحدات المتعددة ----------
+   الصنف المعرَّفة تعبئته يُحسب رصيده داخلياً بالوحدة الصغرى (base)، وسجل الوحدة الكبيرة (pack)
+   يحفظ معامله per وقت تسجيله، فتعديل التعبئة لاحقاً لا يغيّر حساب السجلات القديمة. */
+const packOf = name => packs[name] || null;
+function replacePacks(obj){ Object.keys(packs).forEach(k => delete packs[k]); Object.assign(packs, obj && typeof obj === 'object' ? obj : {}); }
+function perOf(r){ const p = packOf(r.name); return p && r.unit === p.pack ? (+r.per || p.per) : 1; }
+function baseUnit(r){ const p = packOf(r.name); return p && r.unit === p.pack ? p.base : r.unit; }
+const baseQty = r => (+r.qty || 0) * perOf(r);
+const keyOf = r => stockKey(r.name, baseUnit(r));
+// ٧٦ حبة بكرتونة ٢٧ ← «٢ كرتونة + ٢٢ حبة»
+function splitPack(q, p){
+  if (!p || q <= 0) return '';
+  const c = Math.floor(q / p.per), rest = q - c * p.per;
+  return [c ? `${num(c)} ${p.pack}` : '', rest ? `${num(rest)} ${p.base}` : ''].filter(Boolean).join(' + ');
+}
+const balText = (q, unit, p) => p && q >= p.per ? `${splitPack(q, p)} (${num(q)} ${p.base})` : `${num(q)} ${unit || ''}`.trim();
+const packLabel = p => `١ ${p.pack} = ${num(p.per)} ${p.base}`;
+// الكمية كما سُجّلت، ومعها معادلها بالوحدة الصغرى إن كانت بالوحدة الكبيرة
+const qtyText = r => perOf(r) > 1 ? `${num(r.qty)} (${num(baseQty(r))} ${baseUnit(r)})` : num(r.qty);
+// يثبّت معامل التعبئة الحالي على سجل جديد بالوحدة الكبيرة
+function withPer(r){ const p = packOf(r.name); if (p && r.unit === p.pack && !r.per) r.per = p.per; return r; }
+
 function computeStock(adds = additions, outs = withdrawals){
   const map = {};
-  extraItems.forEach(n => { const k = stockKey(n, ''); map[k] = { key:k, name:n, unit:'', totalIn:0, totalOut:0 }; });
-  adds.forEach(r => { const k = stockKey(r.name, r.unit); if (!map[k]) map[k] = { key:k, name:r.name, unit:r.unit, totalIn:0, totalOut:0 }; map[k].totalIn += r.qty; });
-  outs.forEach(r => { const k = stockKey(r.name, r.unit); if (!map[k]) map[k] = { key:k, name:r.name, unit:r.unit, totalIn:0, totalOut:0 }; map[k].totalOut += r.qty; });
-  return Object.values(map).map(i => ({ ...i, balance:i.totalIn - i.totalOut }));
+  const slot = (name, unit) => { const k = stockKey(name, unit); return map[k] || (map[k] = { key:k, name, unit, totalIn:0, totalOut:0 }); };
+  extraItems.forEach(n => slot(n, ''));
+  adds.forEach(r => { slot(r.name, baseUnit(r)).totalIn += baseQty(r); });
+  outs.forEach(r => { slot(r.name, baseUnit(r)).totalOut += baseQty(r); });
+  return Object.values(map).map(i => { const p = packOf(i.name); return { ...i, pack: p && p.base === i.unit ? p : null, balance:i.totalIn - i.totalOut }; });
 }
+// يحسب المخزون بتعريفات تعبئة مؤقتة دون المساس بالمحفوظة
+function withPacks(tmp, fn){ const saved = { ...packs }; replacePacks(tmp); try { return fn(); } finally { replacePacks(saved); } }
 // يرجع الأصناف التي يصبح رصيدها سالباً (أو أكثر سلبية) لو طُبّق التعديل المقترح
-function negativeAfter(newAdds, newOuts){
+function negativeAfter(newAdds, newOuts, newPacks){
   const before = {}; computeStock().forEach(s => before[s.key] = s.balance);
-  return computeStock(newAdds, newOuts).filter(s => s.balance < 0 && s.balance < (before[s.key] ?? 0));
+  const after = newPacks ? withPacks(newPacks, () => computeStock(newAdds, newOuts)) : computeStock(newAdds, newOuts);
+  return after.filter(s => s.balance < 0 && s.balance < (before[s.key] ?? 0));
+}
+// قبل تغيير معامل التعبئة: السجلات القديمة بلا per تثبت على المعامل السابق
+const stampFor = (name, old) => r => (old && r.name === name && r.unit === old.pack && !r.per) ? { ...r, per:old.per } : r;
+function planPack(name, def){
+  const stamp = stampFor(name, packOf(name)), tPacks = { ...packs };
+  if (def) tPacks[name] = def; else delete tPacks[name];
+  return { adds:additions.map(stamp), outs:withdrawals.map(stamp), packs:tPacks };
+}
+function commitPack(name, def){
+  const plan = planPack(name, def);
+  plan.adds.forEach((r, i) => additions[i] = r); plan.outs.forEach((r, i) => withdrawals[i] = r);
+  replacePacks(plan.packs);
+}
+// يسأل قبل تعريف تعبئة تكشف رصيداً سالباً (عادة سجل قديم بالكرتونة وكميته بالحبات)
+async function confirmPackNegatives(name, def, adds){
+  const plan = planPack(name, def);
+  const neg = negativeAfter(adds ? adds(plan.adds) : plan.adds, plan.outs, plan.packs).filter(s => s.name === name);
+  if (!neg.length) return true;
+  return confirmD({ title:'التوحيد يكشف رصيداً سالباً', icon:'warning', okText:'متابعة رغم ذلك', cancelText:'رجوع',
+    msg:`بعد ${def ? 'توحيد الحساب' : 'إلغاء التعبئة'} يصير رصيد «${name}» ${num(neg[0].balance)} ${neg[0].unit}. غالباً في سجل قديم مسجّل بوحدة وكميته بوحدة ثانية — راجع سجلات الصنف بعد الحفظ.` });
 }
 const fmtDate = d => { if (!d) return '—'; const [y, m, day] = d.split('-'); return `${day}/${m}/${y}`; };
 const monthKey = d => d ? d.slice(0, 7) : '';
@@ -310,9 +363,9 @@ function importFromExcel(){
         check:recs => recs.filter(r => !UNITS.includes(r.unit)).map(r => ({ row:r.__row, msg:`الوحدة «${r.unit}» غير معروفة — المسموح: ${UNITS.join('، ')}` })),
         apply:async recs => {
           const prevA = additions.slice();
-          recs.forEach(r => additions.push({ date:r.date, name:r.name, unit:r.unit, qty:r.qty, supplier:r.supplier || '', notes:r.notes || '' }));
+          recs.forEach(r => additions.push(withPer({ date:r.date, name:r.name, unit:r.unit, qty:r.qty, supplier:r.supplier || '', notes:r.notes || '' })));
           saveData(); populateDropdowns(); refreshAll();
-          const items = new Set(recs.map(r => r.name)), total = recs.reduce((s,r) => s + r.qty, 0);
+          const items = new Set(recs.map(r => r.name)), total = recs.reduce((s,r) => s + baseQty(r), 0);
           notify({ type:'success', title:`تمت إضافة ${num(recs.length)} سجل من Excel`, page:'inventory', duration:9000,
             msg:`${num(items.size)} صنف بإجمالي ${num(total)} وحدة. راجع لوحة المخزون للأرصدة الجديدة.`,
             action:{ label:'تراجع', fn:() => { additions.length = 0; prevA.forEach(x => additions.push(x)); saveData(); populateDropdowns(); refreshAll(); notify({ type:'info', title:'تم التراجع عن الاستيراد', log:false }); } } });
@@ -330,23 +383,23 @@ function importFromExcel(){
         check:recs => {
           const stock = computeStock(), errs = [], used = {};
           recs.forEach(r => {
-            let hit = r.unit ? stock.find(s => s.key === stockKey(r.name, r.unit)) : null;
+            let hit = r.unit ? stock.find(s => s.key === keyOf(r)) : null;
             if (!hit){
               const same = stock.filter(s => s.name === r.name);
               if (same.length === 1) { hit = same[0]; r.unit = hit.unit; }
               else if (same.length > 1) return errs.push({ row:r.__row, msg:`«${r.name}» موجود بأكثر من وحدة (${same.map(s => s.unit).join('، ')}) — حدّد عمود الوحدة` });
             }
             if (!hit) return errs.push({ row:r.__row, msg:`«${r.name}»${r.unit ? ' بوحدة ' + r.unit : ''} غير موجود في المخزون — أضفه أولاً` });
-            used[hit.key] = (used[hit.key] || 0) + r.qty;
-            if (used[hit.key] > hit.balance) errs.push({ row:r.__row, msg:`الرصيد لا يكفي: المتاح من «${r.name}» ${num(hit.balance)} ${hit.unit} والمطلوب تراكمياً ${num(used[hit.key])}` });
+            used[hit.key] = (used[hit.key] || 0) + baseQty(r);
+            if (used[hit.key] > hit.balance) errs.push({ row:r.__row, msg:`الرصيد لا يكفي: المتاح من «${r.name}» ${balText(hit.balance, hit.unit, hit.pack)} والمطلوب تراكمياً ${num(used[hit.key])} ${hit.unit}` });
           });
           return errs;
         },
         apply:async recs => {
           const prevW = withdrawals.slice();
-          recs.forEach(r => withdrawals.push({ date:r.date, name:r.name, unit:r.unit, qty:r.qty, dept:r.dept, notes:r.notes || '' }));
+          recs.forEach(r => withdrawals.push(withPer({ date:r.date, name:r.name, unit:r.unit, qty:r.qty, dept:r.dept, notes:r.notes || '' })));
           saveData(); populateDropdowns(); refreshAll();
-          const depts = new Set(recs.map(r => r.dept)), total = recs.reduce((s,r) => s + r.qty, 0);
+          const depts = new Set(recs.map(r => r.dept)), total = recs.reduce((s,r) => s + baseQty(r), 0);
           notify({ type:'success', title:`تم صرف ${num(recs.length)} سجل من Excel`, page:'inventory', duration:9000,
             msg:`${num(total)} وحدة إلى ${num(depts.size)} جهة. تقدر تطبع سند كل صرف من سجل الصرف.`,
             action:{ label:'تراجع', fn:() => { withdrawals.length = 0; prevW.forEach(x => withdrawals.push(x)); saveData(); populateDropdowns(); refreshAll(); notify({ type:'info', title:'تم التراجع عن الاستيراد', log:false }); } } });
@@ -397,9 +450,12 @@ function buildUI(){
       <div class="eq-edit-note" id="inv-in-note"></div>
       <div class="eq-grid">
         <div class="field"><label for="inv-in-date">التاريخ <i>*</i></label><input class="inp" type="date" id="inv-in-date"></div>
-        <div class="field wide"><label for="inv-in-name">اسم الصنف <i>*</i></label><input class="inp" type="text" id="inv-in-name" placeholder="مثال: بطانية" list="inv-items-dl" autocomplete="off"><datalist id="inv-items-dl"></datalist></div>
-        <div class="field"><label for="inv-in-unit">الوحدة</label><select class="inp" id="inv-in-unit">${UNITS.map(u => `<option>${u}</option>`).join('')}</select></div>
-        <div class="field"><label for="inv-in-qty">الكمية <i>*</i></label><input class="inp num" type="number" id="inv-in-qty" placeholder="0" min="1" inputmode="numeric"></div>
+        <div class="field wide"><label for="inv-in-name">اسم الصنف <i>*</i></label><input class="inp" type="text" id="inv-in-name" placeholder="مثال: بطانية" list="inv-items-dl" autocomplete="off" oninput="INV.updateInPack(true)"><datalist id="inv-items-dl"></datalist></div>
+        <div class="field"><label for="inv-in-unit">الوحدة</label><select class="inp" id="inv-in-unit" onchange="INV.updateInPack(true)">${UNITS.map(u => `<option>${u}</option>`).join('')}</select></div>
+        <div class="field"><label for="inv-in-qty">الكمية <i>*</i></label><input class="inp num" type="number" id="inv-in-qty" placeholder="0" min="1" inputmode="numeric" oninput="INV.updateInPack()"></div>
+        <div class="field" id="inv-in-per-f" hidden><label for="inv-in-per" id="inv-in-per-l">كم حبة في الكرتونة؟</label><input class="inp num" type="number" id="inv-in-per" placeholder="مثال: 27" min="2" inputmode="numeric" oninput="INV.updateInPack()"></div>
+        <div class="field" id="inv-in-base-f" hidden><label for="inv-in-base">الوحدة الصغرى</label><select class="inp" id="inv-in-base" onchange="INV.updateInPack()">${UNITS.map(u => `<option>${u}</option>`).join('')}</select></div>
+        <div class="inv-pack-hint wide" id="inv-in-pack-hint" hidden></div>
         <div class="field wide"><label for="inv-in-supplier">المورد</label><input class="inp" type="text" id="inv-in-supplier" placeholder="إمداد الداخلية" list="inv-sup-dl"><datalist id="inv-sup-dl"></datalist></div>
         <div class="field wide"><label for="inv-in-notes">ملاحظات</label><input class="inp" type="text" id="inv-in-notes" placeholder="اختياري"></div>
       </div>
@@ -424,9 +480,10 @@ function buildUI(){
       <div class="eq-grid">
         <div class="field"><label for="inv-out-date">التاريخ <i>*</i></label><input class="inp" type="date" id="inv-out-date"></div>
         <div class="field wide"><label for="inv-out-name">الصنف <i>*</i></label><select class="inp" id="inv-out-name" onchange="INV.updateOutInfo()"><option value="">— اختر —</option></select></div>
-        <div class="field"><label for="inv-out-unit">الوحدة</label><input class="inp" type="text" id="inv-out-unit" readonly tabindex="-1"></div>
+        <div class="field"><label for="inv-out-unit">وحدة الصرف</label><select class="inp" id="inv-out-unit" onchange="INV.updateOutHint()"></select></div>
         <div class="field"><label for="inv-out-balance">الرصيد المتاح</label><input class="inp num" type="text" id="inv-out-balance" readonly tabindex="-1"></div>
-        <div class="field"><label for="inv-out-qty">الكمية المصروفة <i>*</i></label><input class="inp num" type="number" id="inv-out-qty" placeholder="0" min="1" inputmode="numeric"></div>
+        <div class="field"><label for="inv-out-qty">الكمية المصروفة <i>*</i></label><input class="inp num" type="number" id="inv-out-qty" placeholder="0" min="1" inputmode="numeric" oninput="INV.updateOutHint()"></div>
+        <div class="inv-pack-hint wide" id="inv-out-pack-hint" hidden></div>
         <div class="field wide"><label for="inv-out-dept">الجهة المستلمة <i>*</i></label><input class="inp" type="text" id="inv-out-dept" placeholder="سجن خانيونس" list="inv-dept-dl"><datalist id="inv-dept-dl"></datalist></div>
         <div class="field wide"><label for="inv-out-notes">ملاحظات</label><input class="inp" type="text" id="inv-out-notes" placeholder="اختياري"></div>
       </div>
@@ -470,7 +527,7 @@ function buildUI(){
     </div>
     <div class="card eq-table-card">
       <div class="eq-table-head"><h3>تفاصيل المخزون <span class="pill info num" id="inv-stock-count">0</span></h3></div>
-      <div class="eq-scroll"><table><thead><tr><th>#</th><th>الصنف</th><th>الوحدة</th><th>الوارد</th><th>الصادر</th><th>الرصيد</th><th>الحالة</th></tr></thead><tbody id="inv-stock-tbody"></tbody></table></div>
+      <div class="eq-scroll"><table><thead><tr><th>#</th><th>الصنف</th><th>الوحدة</th><th>الوارد</th><th>الصادر</th><th>الرصيد</th><th>الحالة</th><th></th></tr></thead><tbody id="inv-stock-tbody"></tbody></table></div>
     </div>
   </div>`;
 }
@@ -504,7 +561,7 @@ function renderInTable(){
     return `<tr class="${cls}">
       <td><input type="checkbox" class="in-chk" data-idx="${idx}" aria-label="تحديد" onchange="INV.updateSelCountIn()"></td>
       <td class="n num">${num(rows.length - i)}</td><td class="num">${fmtDate(r.date)}</td><td><strong>${esc(r.name)}</strong></td><td>${esc(r.unit)}</td>
-      <td class="qty-in num">+${num(r.qty)}</td><td>${esc(r.supplier) || '—'}</td><td class="muted">${esc(r.notes) || '—'}</td>
+      <td class="qty-in num">+${qtyText(r)}</td><td>${esc(r.supplier) || '—'}</td><td class="muted">${esc(r.notes) || '—'}</td>
       <td><div class="acts"><button class="ib" title="طباعة سند إدخال (يجمع كل ما أُضيف من نفس المورد بنفس التاريخ)" aria-label="طباعة سند" onclick="INV.printAddReceipt(${idx})">🖨</button>
         <button class="ib" title="تعديل" aria-label="تعديل" onclick="INV.editAdd(${idx})">✏️</button><button class="ib del" title="حذف" aria-label="حذف" onclick="INV.delAdd(${idx})">🗑</button></div></td></tr>`;
   }).join('');
@@ -522,7 +579,7 @@ function renderOutTable(){
     return `<tr class="${cls}">
       <td><input type="checkbox" class="out-chk" data-idx="${idx}" aria-label="تحديد" onchange="INV.updateSelCount()"></td>
       <td class="n num">${num(rows.length - i)}</td><td class="num">${fmtDate(r.date)}</td><td><strong>${esc(r.name)}</strong></td><td>${esc(r.unit)}</td>
-      <td class="qty-out num">-${num(r.qty)}</td><td>${esc(r.dept) || '—'}</td><td class="muted">${esc(r.notes) || '—'}</td>
+      <td class="qty-out num">-${qtyText(r)}</td><td>${esc(r.dept) || '—'}</td><td class="muted">${esc(r.notes) || '—'}</td>
       <td><div class="acts"><button class="ib" title="طباعة سند (يجمع كل ما صُرف لنفس الجهة بنفس التاريخ)" aria-label="طباعة سند" onclick="INV.printReceipt(${idx})">🖨</button>
         <button class="ib" title="تعديل" aria-label="تعديل" onclick="INV.editOut(${idx})">✏️</button><button class="ib del" title="حذف" aria-label="حذف" onclick="INV.delOut(${idx})">🗑</button></div></td></tr>`;
   }).join('');
@@ -551,11 +608,14 @@ function renderStockTable(){
   else la.className = 'inv-alert';
 
   const tbody = $id('stock-tbody');
-  if (!stock.length){ tbody.innerHTML = '<tr><td colspan="7" class="eq-empty">لا توجد أصناف بهذا التصنيف.</td></tr>'; }
+  if (!stock.length){ tbody.innerHTML = '<tr><td colspan="8" class="eq-empty">لا توجد أصناف بهذا التصنيف.</td></tr>'; }
   else tbody.innerHTML = stock.map((r, i) => `<tr>
-    <td class="n num">${num(i + 1)}</td><td><strong>${esc(r.name)}</strong></td><td>${esc(r.unit) || '—'}</td>
-    <td class="qty-in num">${num(r.totalIn)}</td><td class="qty-out num">${num(r.totalOut)}</td><td class="qty-bal num">${num(r.balance)}</td>
-    <td>${statusBadge(r.balance)}</td></tr>`).join('');
+    <td class="n num">${num(i + 1)}</td><td><strong>${esc(r.name)}</strong></td>
+    <td>${esc(r.unit) || '—'}${r.pack ? `<small class="inv-pk-sub num">${esc(packLabel(r.pack))}</small>` : ''}</td>
+    <td class="qty-in num">${num(r.totalIn)}</td><td class="qty-out num">${num(r.totalOut)}</td>
+    <td class="qty-bal num">${num(r.balance)}${r.pack && r.balance >= r.pack.per ? `<small class="inv-pk-sub">${esc(splitPack(r.balance, r.pack))}</small>` : ''}</td>
+    <td>${statusBadge(r.balance)}</td>
+    <td>${r.name && (!packOf(r.name) || r.pack) ? `<button class="ib" title="${r.pack ? 'تعديل التعبئة' : 'تعريف تعبئة (كرتونة وحبة)'}" aria-label="التعبئة" data-name="${esc(r.name)}" onclick="INV.openPackSheet(this.dataset.name)">📦</button>` : ''}</td></tr>`).join('');
   if (currentTab === 'stock' && isVisible()) renderChart(currentChartType);
 }
 function filterLow(){ $id('stock-filter').value = 'low'; renderStockTable(); vib(8); }
@@ -596,24 +656,64 @@ function markInvalid(id, title, msg){
   el.addEventListener('change', () => el.classList.remove('invalid'), { once:true });
   notify({ type:'error', title, msg, log:false });
 }
-function addItem(){
+// حقلا التعبئة يظهران لوحدات التعبئة (كرتونة…) أو لوحدة الصنف الكبيرة المعرّفة مسبقاً
+function updateInPack(prefill){
+  const name = $id('in-name').value.trim(), unit = $id('in-unit').value, p = packOf(name);
+  const show = PACK_UNITS.includes(unit) || !!(p && p.pack === unit);
+  $id('in-per-f').hidden = $id('in-base-f').hidden = !show;
+  if (show && prefill === true){
+    $id('in-per').value = p && p.pack === unit ? p.per : '';
+    const other = additions.find(r => r.name === name && !PACK_UNITS.includes(r.unit));
+    $id('in-base').value = p ? p.base : other ? other.unit : 'حبة';
+  }
+  const base = $id('in-base').value, per = parseInt($id('in-per').value, 10), qty = parseInt($id('in-qty').value, 10);
+  $id('in-per-l').textContent = `كم ${base} في ال${unit}؟`;
+  let hint = '';
+  if (show && per > 1) hint = `١ ${unit} = ${num(per)} ${base}` + (qty > 0 ? ` — ${num(qty)} ${unit} = <b>${num(qty * per)} ${base}</b>` : '') + `. الرصيد يُحسب بال${base} وتقدر تصرف بأيّهما.`;
+  else if (show) hint = `اكتب كم ${base} في ال${unit} لتقدر تصرف بال${base} أيضاً — أو اتركه فارغاً.`;
+  else if (p) hint = `«${esc(name)}» معرّف: ${packLabel(p)}. الإضافة بال${unit} تدخل الرصيد مباشرة.`;
+  const h = $id('in-pack-hint'); h.innerHTML = hint; h.hidden = !hint;
+}
+async function addItem(){
   const date = $id('in-date').value, name = $id('in-name').value.trim(), unit = $id('in-unit').value;
   const qty = parseInt($id('in-qty').value, 10), supplier = $id('in-supplier').value.trim(), notes = $id('in-notes').value.trim();
   if (!date) return markInvalid('in-date', 'التاريخ مطلوب', 'حدّد تاريخ استلام الصنف.');
   if (!name) return markInvalid('in-name', 'اسم الصنف مطلوب', 'اكتب اسم الصنف أو اختره من الاقتراحات.');
   if (!qty || qty < 1) return markInvalid('in-qty', 'الكمية غير صحيحة', 'أدخل رقماً صحيحاً أكبر من صفر.');
   const rec = { date, name, unit, qty, supplier, notes };
-  if (editingAddIndex !== null){
-    const trial = additions.slice(); trial[editingAddIndex] = rec;
-    const neg = negativeAfter(trial, withdrawals);
-    if (neg.length) return notify({ type:'error', title:'لا يمكن حفظ هذا التعديل', msg:`رصيد «${neg[0].name}» يصبح ${num(neg[0].balance)} لأن المصروف منه أكثر. عدّل سجلات الصرف أولاً أو زِد الكمية.` });
-    additions[editingAddIndex] = rec; flashIdx.in = editingAddIndex;
+  // التعبئة (اختيارية): ١ كرتونة = ٢٧ حبة
+  const cur = packOf(name), editing = editingAddIndex;
+  let def = null;
+  const perRaw = $id('in-per-f').hidden ? '' : $id('in-per').value.trim();
+  if (perRaw){
+    const per = parseInt(perRaw, 10), base = $id('in-base').value;
+    if (!per || per < 2 || String(per) !== perRaw) return markInvalid('in-per', 'عدد الوحدات غير صحيح', `اكتب كم ${base} في ال${unit} الواحدة (رقم صحيح ٢ أو أكثر)، أو اترك الحقل فارغاً.`);
+    if (base === unit) return markInvalid('in-base', 'الوحدة الصغرى نفس الكبيرة', `اختر وحدة أصغر من «${unit}» مثل حبة أو علبة.`);
+    if (cur && (cur.pack !== unit || cur.base !== base)) return markInvalid('in-base', 'تعبئة الصنف معرّفة بشكل مختلف', `«${name}» معرّف: ${packLabel(cur)}. لتغييره اضغط 📦 بجانب الصنف في تبويب المخزون.`);
+    rec.per = per;
+    // تعديل سجل قديم لا يغيّر المعامل الافتراضي؛ إضافة جديدة بمعامل مختلف تعتمده للقادم
+    if (!cur || (cur.per !== per && editing === null)) def = { base, pack:unit, per };
+  } else if (cur && unit === cur.pack){
+    return markInvalid('in-per', 'عدد الوحدات مطلوب', `«${name}» يُحسب بال${cur.base} — اكتب كم ${cur.base} في ال${unit} (المعتاد ${num(cur.per)}).`);
+  }
+  const place = list => { const t = list.slice(); if (editing !== null) t[editing] = rec; else t.push(rec); return t; };
+  if (editing !== null){
+    const check = () => negativeAfter(place(additions), withdrawals);
+    const neg = def ? withPacks(planPack(name, def).packs, check) : check();
+    if (neg.length) return notify({ type:'error', title:'لا يمكن حفظ هذا التعديل', msg:`رصيد «${neg[0].name}» يصبح ${num(neg[0].balance)} ${neg[0].unit} لأن المصروف منه أكثر. عدّل سجلات الصرف أولاً أو زِد الكمية.` });
+  }
+  if (def && !(await confirmPackNegatives(name, def, place))) return;
+  if (def) commitPack(name, def);
+  if (editing !== null){
+    additions[editing] = rec; flashIdx.in = editing;
     finishEditAdd();
-    notify({ type:'success', title:'تم حفظ التعديل', msg:`${name} — ${num(qty)} ${unit}`, page:'inventory' });
+    notify({ type:'success', title:'تم حفظ التعديل', msg:`${name} — ${qtyText(rec)} ${unit}`, page:'inventory' });
   } else {
     additions.push(rec); flashIdx.in = additions.length - 1;
-    const bal = computeStock().find(s => s.key === stockKey(name, unit));
-    notify({ type:'success', title:`تمت إضافة ${num(qty)} ${unit} من ${name}`, msg:`الرصيد الحالي: ${num(bal ? bal.balance : qty)} ${unit}`, page:'inventory' });
+    const bal = computeStock().find(s => s.key === keyOf(rec));
+    notify({ type:'success', title:`تمت إضافة ${num(qty)} ${unit} من ${name}`, page:'inventory',
+      msg:(perOf(rec) > 1 ? `= ${num(baseQty(rec))} ${baseUnit(rec)}. ` : '') + `الرصيد الحالي: ${bal ? balText(bal.balance, bal.unit, bal.pack) : num(qty) + ' ' + unit}` + (def ? ` — صار «${name}» يُصرف بال${def.base} أو بال${def.pack}.` : ''),
+      action:{ label:'صرف منه', fn:() => { switchTab('out'); $id('out-name').value = keyOf(rec); updateOutInfo(); $id('out-qty').focus(); } } });
   }
   saveData(); populateDropdowns(); renderInTable(); renderStockTable();
   clearInForm(); $id('in-name').focus();
@@ -624,6 +724,7 @@ function editAdd(i){
   switchTab('in', true);
   $id('in-date').value = r.date; $id('in-name').value = r.name; $id('in-unit').value = r.unit; $id('in-qty').value = r.qty;
   $id('in-supplier').value = r.supplier || ''; $id('in-notes').value = r.notes || '';
+  updateInPack(true); if (r.per) $id('in-per').value = r.per; updateInPack();
   editingAddIndex = i;
   $id('form-in').classList.add('editing'); $id('in-title').textContent = 'تعديل إضافة';
   $id('in-note').textContent = `تعدّل إضافة «${r.name}» بتاريخ ${fmtDate(r.date)}. اضغط «حفظ التعديل» أو «إلغاء التعديل».`;
@@ -640,7 +741,7 @@ function cancelEditAdd(silent){
   finishEditAdd(); clearInForm(); renderInTable();
   if (was && silent !== true) notify({ type:'info', title:'تم إلغاء التعديل', msg:'لم يتغيّر السجل.', log:false, duration:2500 });
 }
-function clearInForm(user){ ['in-name','in-qty','in-supplier','in-notes'].forEach(id => $id(id).value = ''); if (user === true) vib(6); }
+function clearInForm(user){ ['in-name','in-qty','in-supplier','in-notes','in-per'].forEach(id => $id(id).value = ''); updateInPack(); if (user === true) vib(6); }
 
 /* ---------- الصرف ---------- */
 function withdrawItem(){
@@ -651,21 +752,26 @@ function withdrawItem(){
   if (!key || !name) return markInvalid('out-name', 'اختر الصنف', 'اختر الصنف المراد صرفه من القائمة.');
   if (!qty || qty < 1) return markInvalid('out-qty', 'الكمية غير صحيحة', 'أدخل رقماً صحيحاً أكبر من صفر.');
   if (!dept) return markInvalid('out-dept', 'الجهة المستلمة مطلوبة', 'اكتب الجهة ليظهر اسمها على سند الصرف.');
-  const item = computeStock().find(s => s.key === key);
+  const item = computeStock().find(s => s.key === key), p = item && item.pack;
+  const orig = editingOutIndex !== null ? withdrawals[editingOutIndex] : null;
+  // الصرف بالوحدة الكبيرة يُخصم بالصغرى؛ تعديل سجل قديم يحتفظ بمعامله
+  const per = p && unit === p.pack ? (orig && orig.name === name && orig.unit === unit && +orig.per || p.per) : 1;
+  const need = qty * per, bu = item ? item.unit : unit;
   let available = item ? item.balance : 0;
-  if (editingOutIndex !== null){ const orig = withdrawals[editingOutIndex]; if (orig && stockKey(orig.name, orig.unit) === key) available += orig.qty; }
-  if (qty > available) return markInvalid('out-qty', 'الكمية أكبر من الرصيد', `المتاح من «${name}» ${num(Math.max(available, 0))} ${unit} فقط.`);
+  if (orig && keyOf(orig) === key) available += baseQty(orig);
+  if (need > available) return markInvalid('out-qty', 'الكمية أكبر من الرصيد', `المتاح من «${name}» ${balText(Math.max(available, 0), bu, p)} فقط` + (per > 1 ? ` — طلبت ${num(qty)} ${unit} = ${num(need)} ${bu}.` : '.'));
   const rec = { date, name, unit, qty, dept, notes };
+  if (per > 1) rec.per = per;
   let idx;
   if (editingOutIndex !== null){
     withdrawals[editingOutIndex] = rec; idx = editingOutIndex;
     finishEditOut();
-    notify({ type:'success', title:'تم حفظ التعديل', msg:`${name} — ${num(qty)} ${unit} إلى ${dept}`, page:'inventory' });
+    notify({ type:'success', title:'تم حفظ التعديل', msg:`${name} — ${qtyText(rec)} ${unit} إلى ${dept}`, page:'inventory' });
   } else {
     withdrawals.push(rec); idx = withdrawals.length - 1;
-    const left = available - qty;
+    const left = available - need, lt = balText(left, bu, p);
     notify({ type: left <= 0 ? 'warning' : 'success', title:`تم صرف ${num(qty)} ${unit} من ${name}`,
-      msg:`إلى ${dept}. ${left <= 0 ? 'نفد الصنف من المخزون.' : left < LOW ? 'الرصيد المتبقي منخفض: ' + num(left) + ' ' + unit + '.' : 'المتبقي: ' + num(left) + ' ' + unit + '.'}`,
+      msg:`إلى ${dept}${per > 1 ? ` (= ${num(need)} ${bu})` : ''}. ${left <= 0 ? 'نفد الصنف من المخزون.' : left < LOW ? 'الرصيد المتبقي منخفض: ' + lt + '.' : 'المتبقي: ' + lt + '.'}`,
       action:{ label:'طباعة السند', fn:() => printReceipt(idx) }, page:'inventory', duration:7000 });
   }
   flashIdx.out = idx;
@@ -677,11 +783,11 @@ function editOut(i){
   if (editingAddIndex !== null) cancelEditAdd(true);
   switchTab('out', true);
   $id('out-date').value = r.date;
-  const key = stockKey(r.name, r.unit); $id('out-name').value = key; updateOutInfo();
-  $id('out-qty').value = r.qty; $id('out-dept').value = r.dept || ''; $id('out-notes').value = r.notes || '';
-  editingOutIndex = i;
+  const key = keyOf(r); $id('out-name').value = key; editingOutIndex = i; updateOutInfo();
+  $id('out-unit').value = r.unit; $id('out-qty').value = r.qty; $id('out-dept').value = r.dept || ''; $id('out-notes').value = r.notes || '';
   const bal = computeStock().find(s => s.key === key);
-  if (bal) $id('out-balance').value = `${num(bal.balance + r.qty)} ${r.unit} (مع كمية هذا السجل)`;
+  if (bal) $id('out-balance').value = `${balText(bal.balance + baseQty(r), bal.unit, bal.pack)} مع هذا السجل`;
+  updateOutHint();
   $id('form-out').classList.add('editing'); $id('out-title').textContent = 'تعديل صرف';
   $id('out-note').textContent = `تعدّل صرف «${r.name}» إلى ${r.dept || '—'} بتاريخ ${fmtDate(r.date)}.`;
   $id('out-submit-btn').textContent = 'حفظ التعديل'; $id('out-cancel-edit').style.display = '';
@@ -697,15 +803,15 @@ function cancelEditOut(silent){
   finishEditOut(); clearOutForm(); renderOutTable();
   if (was && silent !== true) notify({ type:'info', title:'تم إلغاء التعديل', msg:'لم يتغيّر السجل.', log:false, duration:2500 });
 }
-function clearOutForm(user){ ['out-name','out-qty','out-dept','out-notes','out-unit','out-balance'].forEach(id => $id(id).value = ''); $id('out-balance').className = 'inp num'; if (user === true) vib(6); }
+function clearOutForm(user){ ['out-name','out-qty','out-dept','out-notes','out-balance'].forEach(id => $id(id).value = ''); $id('out-unit').innerHTML = ''; $id('out-balance').className = 'inp num'; updateOutHint(); if (user === true) vib(6); }
 
 /* ---------- الحذف (مع تأكيد وتراجع) ---------- */
 async function delAdd(i){
   const r = additions[i]; if (!r) return;
   const trial = additions.filter((_, k) => k !== i);
   const neg = negativeAfter(trial, withdrawals);
-  if (neg.length) return notify({ type:'error', title:'لا يمكن حذف هذه الإضافة', msg:`صُرف من «${r.name}» أكثر مما سيبقى، فيصبح الرصيد ${num(neg[0].balance)}. احذف أو عدّل سجلات الصرف المرتبطة أولاً.` });
-  const ok = await confirmD({ title:'حذف هذه الإضافة؟', msg:`${r.name} — ${num(r.qty)} ${r.unit} بتاريخ ${fmtDate(r.date)}. ينقص الرصيد بنفس الكمية.`, okText:'حذف', danger:true });
+  if (neg.length) return notify({ type:'error', title:'لا يمكن حذف هذه الإضافة', msg:`صُرف من «${r.name}» أكثر مما سيبقى، فيصبح الرصيد ${num(neg[0].balance)} ${neg[0].unit}. احذف أو عدّل سجلات الصرف المرتبطة أولاً.` });
+  const ok = await confirmD({ title:'حذف هذه الإضافة؟', msg:`${r.name} — ${qtyText(r)} ${r.unit} بتاريخ ${fmtDate(r.date)}. ينقص الرصيد بنفس الكمية.`, okText:'حذف', danger:true });
   if (!ok) return;
   if (editingAddIndex === i) cancelEditAdd(true); else if (editingAddIndex !== null && editingAddIndex > i) editingAddIndex--;
   additions.splice(i, 1);
@@ -715,7 +821,7 @@ async function delAdd(i){
 }
 async function delOut(i){
   const r = withdrawals[i]; if (!r) return;
-  const ok = await confirmD({ title:'حذف هذا الصرف؟', msg:`${r.name} — ${num(r.qty)} ${r.unit} إلى ${r.dept || '—'}. تعود الكمية للرصيد.`, okText:'حذف', danger:true });
+  const ok = await confirmD({ title:'حذف هذا الصرف؟', msg:`${r.name} — ${qtyText(r)} ${r.unit} إلى ${r.dept || '—'}. تعود الكمية للرصيد.`, okText:'حذف', danger:true });
   if (!ok) return;
   if (editingOutIndex === i) cancelEditOut(true); else if (editingOutIndex !== null && editingOutIndex > i) editingOutIndex--;
   withdrawals.splice(i, 1);
@@ -759,7 +865,7 @@ function printCombinedReceipt(indices){
     return `
     <table><tr><th>الجهة المستلمة</th><td>${esc(dept)}</td><th>${multiDate ? 'عدة تواريخ' : 'التاريخ'}</th><td>${multiDate ? '—' : fmtDate(items[0].date)}</td></tr></table>
     <table style="margin-top:10px"><thead><tr><th>#</th><th>الصنف</th><th>الوحدة</th><th>الكمية</th>${multiDate ? '<th>التاريخ</th>' : ''}<th>ملاحظات</th></tr></thead>
-      <tbody>${items.map((it, n) => `<tr><td>${n + 1}</td><td>${esc(it.name)}</td><td>${esc(it.unit)}</td><td>${it.qty}</td>${multiDate ? `<td>${fmtDate(it.date)}</td>` : ''}<td>${esc(it.notes) || '—'}</td></tr>`).join('')}</tbody></table>
+      <tbody>${items.map((it, n) => `<tr><td>${n + 1}</td><td>${esc(it.name)}</td><td>${esc(it.unit)}</td><td>${qtyText(it)}</td>${multiDate ? `<td>${fmtDate(it.date)}</td>` : ''}<td>${esc(it.notes) || '—'}</td></tr>`).join('')}</tbody></table>
     <p style="margin-top:20px;font-size:.9rem">أقر أنا الموقع أدناه باستلام الأصناف الموضحة أعلاه بحالة سليمة.</p>
     <div class="sig"><div>توقيع المستلم</div><div>توقيع أمين المخزن</div></div>
     <div style="page-break-after:always"></div>`;
@@ -804,7 +910,7 @@ function printCombinedAddReceipt(indices){
     return `
     <table><tr><th>المورد / الجهة المورِّدة</th><td>${esc(sup)}</td><th>${multiDate ? 'عدة تواريخ' : 'التاريخ'}</th><td>${multiDate ? '—' : fmtDate(items[0].date)}</td></tr></table>
     <table style="margin-top:10px"><thead><tr><th>#</th><th>الصنف</th><th>الوحدة</th><th>الكمية</th>${multiDate ? '<th>التاريخ</th>' : ''}<th>ملاحظات</th></tr></thead>
-      <tbody>${items.map((it, n) => `<tr><td>${n + 1}</td><td>${esc(it.name)}</td><td>${esc(it.unit)}</td><td>${it.qty}</td>${multiDate ? `<td>${fmtDate(it.date)}</td>` : ''}<td>${esc(it.notes) || '—'}</td></tr>`).join('')}
+      <tbody>${items.map((it, n) => `<tr><td>${n + 1}</td><td>${esc(it.name)}</td><td>${esc(it.unit)}</td><td>${qtyText(it)}</td>${multiDate ? `<td>${fmtDate(it.date)}</td>` : ''}<td>${esc(it.notes) || '—'}</td></tr>`).join('')}
       <tr><td colspan="${multiDate ? 4 : 3}" style="text-align:left;font-weight:bold">إجمالي الكميات</td><td colspan="2" style="font-weight:bold">${total}</td></tr></tbody></table>
     <p style="margin-top:20px;font-size:.9rem">أقر أنا الموقع أدناه بإدخال الأصناف الموضحة أعلاه إلى المخزون بحالة سليمة ومطابقة للكميات المذكورة.</p>
     <div class="sig"><div>توقيع المورِّد</div><div>توقيع أمين المخزن</div></div>
@@ -859,7 +965,7 @@ function printDetailedReport(monthsSel){
   if (!adds.length && !outs.length) return notify({ type:'warning', title:'لا توجد بيانات في الأشهر المختارة', msg:'اختر أشهراً أخرى وأعد المحاولة.', log:false });
 
   const scope = set.size ? [...set].sort().reverse().map(monthLabel).join(' · ') : 'كل الفترات';
-  const tIn = adds.reduce((a, r) => a + (+r.qty || 0), 0), tOut = outs.reduce((a, r) => a + (+r.qty || 0), 0);
+  const tIn = adds.reduce((a, r) => a + baseQty(r), 0), tOut = outs.reduce((a, r) => a + baseQty(r), 0);
   const stockAll = computeStock();
   const balOf = {}; stockAll.forEach(s => balOf[s.key] = s.balance);
 
@@ -867,30 +973,32 @@ function printDetailedReport(monthsSel){
   const months = [...new Set([...adds, ...outs].map(r => monthKey(r.date)).filter(Boolean))].sort().reverse();
   const mRows = months.map(m => {
     const a = adds.filter(r => monthKey(r.date) === m), w = outs.filter(r => monthKey(r.date) === m);
-    const ai = a.reduce((x, r) => x + (+r.qty || 0), 0), wo = w.reduce((x, r) => x + (+r.qty || 0), 0);
+    const ai = a.reduce((x, r) => x + baseQty(r), 0), wo = w.reduce((x, r) => x + baseQty(r), 0);
     return `<tr><td><b>${monthLabel(m)}</b></td><td>${num(ai)}</td><td>${num(wo)}</td><td>${num(ai - wo)}</td><td>${num(a.length + w.length)}</td></tr>`;
   }).join('');
 
   // حركة الأصناف داخل النطاق
   const mv = {};
-  const touch = r => { const k = stockKey(r.name, r.unit); if (!mv[k]) mv[k] = { name:r.name, unit:r.unit, inQ:0, outQ:0 }; return mv[k]; };
-  adds.forEach(r => touch(r).inQ += (+r.qty || 0));
-  outs.forEach(r => touch(r).outQ += (+r.qty || 0));
+  const touch = r => { const k = keyOf(r); if (!mv[k]) mv[k] = { name:r.name, unit:baseUnit(r), inQ:0, outQ:0 }; return mv[k]; };
+  adds.forEach(r => touch(r).inQ += baseQty(r));
+  outs.forEach(r => touch(r).outQ += baseQty(r));
+  const packAt = {}; stockAll.forEach(s => packAt[s.key] = s.pack);
   const itemRows = Object.entries(mv).sort((a, b) => b[1].outQ - a[1].outQ || a[1].name.localeCompare(b[1].name, 'ar')).map(([k, v], i) => {
     const bal = balOf[k] ?? (v.inQ - v.outQ);
     const st = bal <= 0 ? 'نافد' : bal < LOW ? 'منخفض' : 'متوفر';
-    return `<tr><td>${num(i + 1)}</td><td>${esc(v.name)}</td><td>${esc(v.unit) || '—'}</td><td>${num(v.inQ)}</td><td>${num(v.outQ)}</td><td>${num(v.inQ - v.outQ)}</td><td>${num(bal)}</td><td>${st}</td></tr>`;
+    const pk = packAt[k];
+    return `<tr><td>${num(i + 1)}</td><td>${esc(v.name)}</td><td>${esc(v.unit) || '—'}${pk ? `<br><small>${esc(packLabel(pk))}</small>` : ''}</td><td>${num(v.inQ)}</td><td>${num(v.outQ)}</td><td>${num(v.inQ - v.outQ)}</td><td>${esc(balText(bal, v.unit, pk))}</td><td>${st}</td></tr>`;
   }).join('');
 
   // حسب الجهة
   const byDept = {};
-  outs.forEach(r => { const k = r.dept || '—'; if (!byDept[k]) byDept[k] = { qty:0, count:0, last:'' }; byDept[k].qty += (+r.qty || 0); byDept[k].count++; if ((r.date || '') > byDept[k].last) byDept[k].last = r.date || ''; });
+  outs.forEach(r => { const k = r.dept || '—'; if (!byDept[k]) byDept[k] = { qty:0, count:0, last:'' }; byDept[k].qty += baseQty(r); byDept[k].count++; if ((r.date || '') > byDept[k].last) byDept[k].last = r.date || ''; });
   const deptRows = Object.entries(byDept).sort((a, b) => b[1].qty - a[1].qty).map(([d, v], i) =>
     `<tr><td>${num(i + 1)}</td><td>${esc(d)}</td><td>${num(v.qty)}</td><td>${num(v.count)}</td><td>${fmtDate(v.last)}</td></tr>`).join('');
 
   // حسب المورد
   const bySup = {};
-  adds.forEach(r => { const k = r.supplier || '—'; if (!bySup[k]) bySup[k] = { qty:0, count:0, last:'' }; bySup[k].qty += (+r.qty || 0); bySup[k].count++; if ((r.date || '') > bySup[k].last) bySup[k].last = r.date || ''; });
+  adds.forEach(r => { const k = r.supplier || '—'; if (!bySup[k]) bySup[k] = { qty:0, count:0, last:'' }; bySup[k].qty += baseQty(r); bySup[k].count++; if ((r.date || '') > bySup[k].last) bySup[k].last = r.date || ''; });
   const supRows = Object.entries(bySup).sort((a, b) => b[1].qty - a[1].qty).map(([d, v], i) =>
     `<tr><td>${num(i + 1)}</td><td>${esc(d)}</td><td>${num(v.qty)}</td><td>${num(v.count)}</td><td>${fmtDate(v.last)}</td></tr>`).join('');
 
@@ -916,10 +1024,10 @@ function printDetailedReport(monthsSel){
     <table><thead><tr><th>#</th><th>المورد</th><th>الكمية</th><th>العمليات</th><th>آخر توريد</th></tr></thead><tbody>${supRows || empty(5)}</tbody></table>
     <h2>٦. تفاصيل الإضافات</h2>
     <table><thead><tr><th>#</th><th>التاريخ</th><th>الصنف</th><th>الوحدة</th><th>الكمية</th><th>المورد</th><th>ملاحظات</th></tr></thead><tbody>
-      ${adds.map((r, i) => `<tr><td>${num(i + 1)}</td><td>${fmtDate(r.date)}</td><td>${esc(r.name)}</td><td>${esc(r.unit) || '—'}</td><td>${num(r.qty)}</td><td>${esc(r.supplier) || '—'}</td><td>${esc(r.notes) || '—'}</td></tr>`).join('') || empty(7)}</tbody></table>
+      ${adds.map((r, i) => `<tr><td>${num(i + 1)}</td><td>${fmtDate(r.date)}</td><td>${esc(r.name)}</td><td>${esc(r.unit) || '—'}</td><td>${qtyText(r)}</td><td>${esc(r.supplier) || '—'}</td><td>${esc(r.notes) || '—'}</td></tr>`).join('') || empty(7)}</tbody></table>
     <h2>٧. تفاصيل الصرف</h2>
     <table><thead><tr><th>#</th><th>التاريخ</th><th>الصنف</th><th>الوحدة</th><th>الكمية</th><th>الجهة</th><th>ملاحظات</th></tr></thead><tbody>
-      ${outs.map((r, i) => `<tr><td>${num(i + 1)}</td><td>${fmtDate(r.date)}</td><td>${esc(r.name)}</td><td>${esc(r.unit) || '—'}</td><td>${num(r.qty)}</td><td>${esc(r.dept) || '—'}</td><td>${esc(r.notes) || '—'}</td></tr>`).join('') || empty(7)}</tbody></table>
+      ${outs.map((r, i) => `<tr><td>${num(i + 1)}</td><td>${fmtDate(r.date)}</td><td>${esc(r.name)}</td><td>${esc(r.unit) || '—'}</td><td>${qtyText(r)}</td><td>${esc(r.dept) || '—'}</td><td>${esc(r.notes) || '—'}</td></tr>`).join('') || empty(7)}</tbody></table>
     <div class="sig"><div class="s">أمين المخزن</div><div class="s">مدير العمليات</div><div class="s">اعتماد المدير العام</div></div>
     <div class="foot">تقرير مُصدر إلكترونياً — ${fmtDate(today())}</div>`;
   const ok = openPrintWindow(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>التقرير المفصل لمخزون الطعام</title>
@@ -940,13 +1048,70 @@ function printDetailedReport(monthsSel){
   if (ok) notify({ type:'info', title:'تم تجهيز التقرير المفصل', msg:`${esc(scope)} — ${num(adds.length)} إضافة و${num(outs.length)} صرف. اختر «حفظ بصيغة PDF».`, log:false });
 }
 
+/* ---------- تعبئة الصنف (كرتونة = عدد من الحبات) ---------- */
+let packSheet = null;
+function openPackSheet(name){
+  if (!name) return;
+  const p = packOf(name);
+  const other = additions.concat(withdrawals).find(r => r.name === name && !PACK_UNITS.includes(r.unit));
+  const base = p ? p.base : other ? other.unit : 'حبة', pack = p ? p.pack : 'كرتونة';
+  const opts = sel => UNITS.map(u => `<option${u === sel ? ' selected' : ''}>${u}</option>`).join('');
+  packSheet = App.sheet(`
+    <div class="mk-form-head"><h3>تعبئة «${esc(name)}»</h3></div>
+    <p class="mk-hint">حدّد كم وحدة صغرى في الوحدة الكبيرة. الرصيد يُحسب بالصغرى ويُعرض بالاثنتين، وتقدر تضيف وتصرف بأيّهما. السجلات القديمة بالوحدتين تنضم لرصيد واحد.</p>
+    <div class="mk-grid inv-pk">
+      <div class="mk-field"><label for="inv-pk-pack">الوحدة الكبيرة</label><select class="mk-inp" id="inv-pk-pack" onchange="INV.previewPack()">${opts(pack)}</select></div>
+      <div class="mk-field"><label for="inv-pk-per">كم وحدة صغرى فيها؟ <i>*</i></label><input class="mk-inp num" type="number" id="inv-pk-per" min="2" inputmode="numeric" placeholder="مثال: 27" value="${p ? p.per : ''}" oninput="INV.previewPack()"></div>
+      <div class="mk-field"><label for="inv-pk-base">الوحدة الصغرى</label><select class="mk-inp" id="inv-pk-base" onchange="INV.previewPack()">${opts(base)}</select></div>
+    </div>
+    <div class="inv-pack-hint" id="inv-pk-prev"></div>
+    <div class="mk-btns"><button class="btn btn-primary" onclick="INV.savePack()">حفظ التعبئة</button>
+      ${p ? '<button class="btn btn-danger" onclick="INV.removePack()">إلغاء التعبئة</button>' : ''}</div>`, { onClose:() => { packSheet = null; } });
+  packSheet.name = name;
+  previewPack(); vib(8);
+  setTimeout(() => { const el = $id('pk-per'); if (el) el.focus(); }, 250);
+}
+function readPackForm(){ return { pack:$id('pk-pack').value, base:$id('pk-base').value, per:parseInt($id('pk-per').value, 10) }; }
+function previewPack(){
+  if (!packSheet) return;
+  const name = packSheet.name, d = readPackForm(), el = $id('pk-prev');
+  if (!(d.per > 1) || d.pack === d.base){ el.textContent = d.pack === d.base ? 'الوحدتان لازم تختلفا.' : `اكتب كم ${d.base} في ال${d.pack}.`; return; }
+  const plan = planPack(name, d), s = withPacks(plan.packs, () => computeStock(plan.adds, plan.outs)).find(x => x.name === name && x.unit === d.base);
+  el.innerHTML = `${packLabel(d)} — الرصيد بعد التوحيد: <b>${s ? balText(s.balance, d.base, d) : '٠ ' + d.base}</b>` + (s && s.balance < 0 ? ' <b class="bad">(سالب — راجع السجلات)</b>' : '');
+}
+async function savePack(){
+  if (!packSheet) return;
+  const name = packSheet.name, d = readPackForm(), old = packOf(name);
+  if (!(d.per > 1) || String(d.per) !== $id('pk-per').value.trim()) return markInvalid('pk-per', 'العدد غير صحيح', `اكتب كم ${d.base} في ال${d.pack} (رقم صحيح ٢ أو أكثر).`);
+  if (d.pack === d.base) return markInvalid('pk-base', 'الوحدتان متطابقتان', 'اختر وحدة صغرى غير الوحدة الكبيرة.');
+  if (!(await confirmPackNegatives(name, d))) return;
+  commitPack(name, { base:d.base, pack:d.pack, per:d.per });
+  if (packSheet) packSheet.close();
+  saveData(); refreshAll();
+  const s = computeStock().find(x => x.name === name && x.unit === d.base);
+  notify({ type:'success', title: old ? `تم تعديل تعبئة «${name}»` : `صار «${name}» يُصرف بال${d.base} أو بال${d.pack}`, page:'inventory', duration:8000,
+    msg:`${packLabel(d)}. الرصيد: ${s ? balText(s.balance, s.unit, s.pack) : '٠'}.`,
+    action:{ label:'صرف منه', fn:() => { switchTab('out'); $id('out-name').value = stockKey(name, d.base); updateOutInfo(); $id('out-qty').focus(); } } });
+}
+async function removePack(){
+  if (!packSheet) return;
+  const name = packSheet.name, old = packOf(name); if (!old) return;
+  const ok = await confirmD({ title:`إلغاء تعبئة «${name}»؟`, msg:`يرجع رصيد ال${old.pack} وال${old.base} منفصلين كما كانا. السجلات نفسها لا تُحذف.`, okText:'إلغاء التعبئة', cancelText:'رجوع', danger:true });
+  if (!ok || !(await confirmPackNegatives(name, null))) return;
+  commitPack(name, null);
+  if (packSheet) packSheet.close();
+  saveData(); refreshAll();
+  notify({ type:'success', title:`تم إلغاء تعبئة «${name}»`, msg:'الرصيد صار منفصلاً لكل وحدة.', page:'inventory', duration:8000,
+    action:{ label:'تراجع', fn:() => { commitPack(name, old); saveData(); refreshAll(); notify({ type:'info', title:'تمت استعادة التعبئة', log:false }); } } });
+}
+
 /* ---------- القوائم المنسدلة ---------- */
 function populateDropdowns(){
   const stock = computeStock(), sel = $id('out-name'), cur = sel.value;
   sel.innerHTML = '<option value="">— اختر —</option>';
   stock.slice().sort((a, b) => a.name.localeCompare(b.name, 'ar')).forEach(s => {
     const o = document.createElement('option');
-    o.value = s.key; o.textContent = `${s.name} — ${s.unit || '—'}  (رصيد: ${s.balance} ${s.unit})`;
+    o.value = s.key; o.textContent = `${s.name} — ${s.pack ? s.unit + '/' + s.pack.pack : s.unit || '—'}  (رصيد: ${balText(s.balance, s.unit, s.pack)})`;
     o.dataset.name = s.name; o.dataset.unit = s.unit; o.dataset.bal = s.balance;
     if (s.balance <= 0) o.textContent += ' — نافد';
     sel.appendChild(o);
@@ -962,11 +1127,25 @@ function populateDropdowns(){
   gd.innerHTML = '<option value="">كل الجهات</option>' + depts.map(d => `<option>${esc(d)}</option>`).join('');
   gd.value = gcur;
 }
+function updateOutHint(){
+  const h = $id('out-pack-hint'), key = $id('out-name').value;
+  const s = key ? computeStock().find(x => x.key === key) : null, p = s && s.pack;
+  if (!p){ h.hidden = true; return; }
+  const unit = $id('out-unit').value, qty = parseInt($id('out-qty').value, 10);
+  const orig = editingOutIndex !== null ? withdrawals[editingOutIndex] : null;
+  const per = unit === p.pack ? (orig && orig.name === s.name && orig.unit === unit && +orig.per || p.per) : 1;
+  const left = s.balance + (orig && keyOf(orig) === key ? baseQty(orig) : 0) - (qty > 0 ? qty * per : 0);
+  h.innerHTML = `${packLabel(p)}` + (qty > 0 ? ` — تصرف ${num(qty)} ${unit}${per > 1 ? ` = <b>${num(qty * per)} ${p.base}</b>` : ''}، ` + (left < 0 ? `<b class="bad">أكثر من الرصيد</b>` : `يبقى ${balText(left, p.base, p)}`) : `. اختر وحدة الصرف: ${p.base} أو ${p.pack}.`);
+  h.hidden = false;
+}
 function updateOutInfo(){
   const sel = $id('out-name'), opt = sel.options[sel.selectedIndex];
-  $id('out-unit').value = (opt && opt.dataset.unit) || '';
-  const b = opt && opt.dataset.bal !== undefined ? +opt.dataset.bal : null;
-  $id('out-balance').value = b !== null ? `${num(b)} ${opt.dataset.unit || ''}` : '';
+  const s = sel.value ? computeStock().find(x => x.key === sel.value) : null;
+  // الصنف المعرّفة تعبئته يُصرف بالوحدة الصغرى أو الكبيرة
+  $id('out-unit').innerHTML = s ? [s.unit, ...(s.pack ? [s.pack.pack] : [])].map(u => `<option value="${esc(u)}">${esc(u || '—')}</option>`).join('') : '';
+  const b = s ? s.balance : null;
+  $id('out-balance').value = s ? balText(b, s.unit, s.pack) : '';
+  updateOutHint();
   $id('out-balance').className = 'inp num ' + (b === null ? '' : balClass(b));
   if (b !== null && b <= 0 && editingOutIndex === null) notify({ type:'warning', title:'هذا الصنف نافد', msg:'أضف كمية جديدة من تبويب الإضافة قبل الصرف.', log:false, action:{ label:'إضافة كمية', fn:() => { switchTab('in'); $id('in-name').value = opt.dataset.name; $id('in-unit').value = opt.dataset.unit || $id('in-unit').value; $id('in-qty').focus(); } } });
 }
@@ -977,16 +1156,16 @@ function exportExcel(){
   if (typeof XLSX === 'undefined') return notify({ type:'error', title:'مكتبة Excel غير محمّلة', msg:'أعد تحميل التطبيق ثم حاول مجدداً.' });
   try {
     const wb = XLSX.utils.book_new();
-    const addData = [['التاريخ','اسم الصنف','الوحدة','الكمية','المورد','ملاحظات']];
-    additions.forEach(r => addData.push([r.date, r.name, r.unit, r.qty, r.supplier, r.notes]));
+    const addData = [['التاريخ','اسم الصنف','الوحدة','الكمية','المورد','ملاحظات','بالوحدة الصغرى']];
+    additions.forEach(r => addData.push([r.date, r.name, r.unit, r.qty, r.supplier, r.notes, perOf(r) > 1 ? `${baseQty(r)} ${baseUnit(r)}` : '']));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(addData), 'الإضافات');
-    const outData = [['التاريخ','اسم الصنف','الوحدة','الكمية','الجهة المستلمة','ملاحظات']];
-    withdrawals.forEach(r => outData.push([r.date, r.name, r.unit, r.qty, r.dept, r.notes]));
+    const outData = [['التاريخ','اسم الصنف','الوحدة','الكمية','الجهة المستلمة','ملاحظات','بالوحدة الصغرى']];
+    withdrawals.forEach(r => outData.push([r.date, r.name, r.unit, r.qty, r.dept, r.notes, perOf(r) > 1 ? `${baseQty(r)} ${baseUnit(r)}` : '']));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(outData), 'الصرف');
-    const stData = [['اسم الصنف','الوحدة','الوارد','الصادر','الرصيد','الحالة']];
-    computeStock().forEach(r => stData.push([r.name, r.unit, r.totalIn, r.totalOut, r.balance, r.balance <= 0 ? 'نافد' : r.balance < LOW ? 'منخفض' : 'متوفر']));
+    const stData = [['اسم الصنف','الوحدة','الوارد','الصادر','الرصيد','الحالة','التعبئة','الرصيد بالتعبئة']];
+    computeStock().forEach(r => stData.push([r.name, r.unit, r.totalIn, r.totalOut, r.balance, r.balance <= 0 ? 'نافد' : r.balance < LOW ? 'منخفض' : 'متوفر', r.pack ? `1 ${r.pack.pack} = ${r.pack.per} ${r.pack.base}` : '', r.pack ? splitPack(r.balance, r.pack) : '']));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(stData), 'المخزون');
-    const fname = 'مخزون_المعدات_' + today() + '.xlsx';
+    const fname = 'مخزون_الطعام_' + today() + '.xlsx';
     const buf = XLSX.write(wb, { bookType:'xlsx', type:'array' });
     const url = URL.createObjectURL(new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
     const a = document.createElement('a'); a.href = url; a.download = fname; document.body.appendChild(a); a.click(); a.remove();
@@ -998,9 +1177,9 @@ function exportPDF(){
   vib(10);
   const stock = computeStock(), now = new Date().toLocaleDateString('ar-EG');
   const tIn = stock.reduce((a, r) => a + r.totalIn, 0), tOut = stock.reduce((a, r) => a + r.totalOut, 0);
-  const rows = stock.map((r, i) => `<tr style="background:${i % 2 === 0 ? '#f8f9fa' : '#fff'}"><td>${i + 1}</td><td>${esc(r.name)}</td><td>${esc(r.unit) || '—'}</td>
+  const rows = stock.map((r, i) => `<tr style="background:${i % 2 === 0 ? '#f8f9fa' : '#fff'}"><td>${i + 1}</td><td>${esc(r.name)}</td><td>${esc(r.unit) || '—'}${r.pack ? `<br><small>${esc(packLabel(r.pack))}</small>` : ''}</td>
     <td style="color:#1d6f42;font-weight:bold">${r.totalIn.toLocaleString()}</td><td style="color:#c0392b;font-weight:bold">${r.totalOut.toLocaleString()}</td>
-    <td style="color:#2980b9;font-weight:bold">${r.balance.toLocaleString()}</td><td>${r.balance <= 0 ? 'نافد' : r.balance < LOW ? 'منخفض' : 'متوفر'}</td></tr>`).join('');
+    <td style="color:#2980b9;font-weight:bold">${r.balance.toLocaleString()}${r.pack && r.balance >= r.pack.per ? `<br><small style="font-weight:normal">${esc(splitPack(r.balance, r.pack))}</small>` : ''}</td><td>${r.balance <= 0 ? 'نافد' : r.balance < LOW ? 'منخفض' : 'متوفر'}</td></tr>`).join('');
   const ok = openPrintWindow(`<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"><title>تقرير المخزون العام</title>
   <style>body{font-family:Tahoma,Arial,sans-serif;direction:rtl;padding:20px}h1{text-align:center;color:#1B3B2F;font-size:1.2rem}
   .sub{text-align:center;color:#666;font-size:.82rem;margin-bottom:16px}.kpis{display:flex;gap:10px;margin-bottom:16px}
@@ -1027,13 +1206,14 @@ function importBackup(event){
     if (!data || !Array.isArray(data.additions) || !Array.isArray(data.withdrawals)) return notify({ type:'error', title:'الملف ليس نسخة من إدارة المخزون', msg:'اختر ملفاً نُزّل من زر «نسخة احتياطية» في تطبيق إدارة المخزون المستقل.' });
     const ok = await confirmD({ title:'استبدال بيانات المعدات؟', msg:`الملف فيه ${num(data.additions.length)} إضافة و${num(data.withdrawals.length)} صرف. الحالي: ${num(additions.length)} إضافة و${num(withdrawals.length)} صرف. سيُستبدل الحالي بالكامل.`, okText:'استبدال البيانات', danger:true, icon:'inbox' });
     if (!ok) return notify({ type:'info', title:'تم إلغاء الاستيراد', msg:'لم يتغيّر شيء.', log:false });
-    const prevA = additions.slice(), prevW = withdrawals.slice();
+    const prevA = additions.slice(), prevW = withdrawals.slice(), prevP = { ...packs };
     additions.length = 0; data.additions.forEach(r => additions.push(r));
     withdrawals.length = 0; data.withdrawals.forEach(r => withdrawals.push(r));
+    replacePacks(data.packs);
     cancelEditAdd(true); cancelEditOut(true);
     saveData(); refreshAll();
     notify({ type:'success', title:'تم استيراد بيانات المعدات', msg:`${num(additions.length)} إضافة و${num(withdrawals.length)} صرف.`, page:'inventory', duration:9000,
-      action:{ label:'تراجع', fn:() => { additions.length = 0; prevA.forEach(r => additions.push(r)); withdrawals.length = 0; prevW.forEach(r => withdrawals.push(r)); saveData(); refreshAll(); notify({ type:'info', title:'تم التراجع عن الاستيراد', log:false }); } } });
+      action:{ label:'تراجع', fn:() => { additions.length = 0; prevA.forEach(r => additions.push(r)); withdrawals.length = 0; prevW.forEach(r => withdrawals.push(r)); replacePacks(prevP); saveData(); refreshAll(); notify({ type:'info', title:'تم التراجع عن الاستيراد', log:false }); } } });
   };
   reader.readAsText(file);
   event.target.value = '';
@@ -1082,8 +1262,9 @@ return {
   updateOutInfo, delAdd, delOut, editAdd, editOut, printReceipt, toggleAll, updateSelCount, filterLow,
   printAddReceipt, printSelectedAddReceipt, toggleAllIn, updateSelCountIn,
   openReportSheet, reportSelectAll, reportSelectLast, runDetailedReport,
+  updateInPack, updateOutHint, openPackSheet, previewPack, savePack, removePack,
   computeStock, init, onShow, alerts,
-  _data:{ additions, withdrawals }
+  _data:{ additions, withdrawals, packs }
 };
 })();
 
