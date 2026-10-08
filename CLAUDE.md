@@ -1,6 +1,6 @@
 # النظام الإداري الموحّد — تعليمات العمل
 
-تطبيق واحد أوفلاين قابل للتثبيت (PWA) يجمع ٧ وحدات إدارية. الردود باللهجة الشامية.
+تطبيق واحد أوفلاين قابل للتثبيت (PWA) يجمع ٧ وحدات إدارية. الردود باللهجة الشامية — **كل نص يراه المستخدم**، حتى الجمل القصيرة بين الأدوات.
 
 ## قواعد لا تُكسر
 
@@ -9,6 +9,16 @@
 3. **أي إصدار جديد:** حدّث `APP_VERSION` في `src/shell.js` و`unified-admin/sw.js` (البناء يرفض إن اختلفا)، وأضف عنصراً في أول `CHANGELOG` داخل `src/shell.js`، وقسماً في `GUIDE` إذا الميزة تهم المستخدم.
 4. **سلّم جاهزاً:** بلا خطوات يدوية على المستخدم (ولا تعديل أرقام إصدار قبل النشر).
 5. كل `push` على `main` يبني وينشر تلقائياً عبر GitHub Actions — لا ترفع ملفات بناء مع الكوميت. **الرابط الأساسي: https://omer.mosabj18.workers.dev** (وركر `omer`، إعداده في `wrangler.jsonc`، يحتاج سر `CLOUDFLARE_API_TOKEN` في المستودع)، ونسخة ثانية على GitHub Pages.
+
+## النشر
+
+- المستودع: `mosabj18-code/unified-admin-system`، الفرع `main`. الـworkflow: `.github/workflows/deploy.yml` (بناء ← فحص Playwright على `dist` ← GitHub Pages + Cloudflare).
+- **لا تعيد تشغيل run قديم فاشل:** `concurrency: pages` مع `cancel-in-progress` يلغي التشغيلات الأحدث. شغّل جديداً بـ`gh workflow run deploy.yml --ref main`.
+- التحقق بعد النشر: `/` و`/manifest.webmanifest` و`/sw.js` على `omer.mosabj18.workers.dev` ترجع 200 وتحمل `APP_VERSION` الجديد.
+- تثبيت Playwright على الـrunner أحياناً ياخد ~٧ دقائق (التشغيل كله ~١١) — بطء مش تعليق.
+- **التوكنات:** لا تقرأ ولا تلصق أي توكن. إذا انتهى `CLOUDFLARE_API_TOKEN`: المستخدم ينشئ توكن من dash.cloudflare.com/profile/api-tokens بقالب «Edit Cloudflare Workers» (Account = حسابه، Zones = All zones) ويحطه بـ`gh secret set CLOUDFLARE_API_TOKEN --repo mosabj18-code/unified-admin-system` أو من Settings ← Secrets ← Actions على GitHub.
+- رفع ملفات `.github/workflows/` يحتاج صلاحية `workflow` لتوكن `gh` (`gh auth refresh -h github.com -s workflow`).
+- لا تلمس الوركرات الثانية بحساب Cloudflare — لمشاريع ثانية.
 
 ## البنية
 
