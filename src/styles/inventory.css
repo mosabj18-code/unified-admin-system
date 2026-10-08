@@ -107,3 +107,13 @@ html[data-layout="mobile"] #page-inventory .chart-wrap{height:230px}
 .inv-mrow input{flex:none;width:17px;height:17px;accent-color:var(--accent)}
 .inv-mname{flex:1;font-weight:600}
 .inv-mcnt{font-size:11.5px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+
+/* الوحدات المتعددة (كرتونة / حبة) */
+#page-inventory .field[hidden]{display:none!important}
+#page-inventory .eq-grid .inv-pack-hint{grid-column:1/-1}
+.inv-pack-hint{padding:9px 13px;border-radius:12px;background:var(--info-bg);color:var(--info-text);font-size:13.5px;line-height:1.7}
+.inv-pack-hint[hidden]{display:none!important}
+.inv-pack-hint b{font-variant-numeric:tabular-nums}
+.inv-pack-hint .bad{color:var(--danger-text)}
+#page-inventory .inv-pk-sub{display:block;font-size:11.5px;font-weight:500;color:var(--muted);white-space:nowrap;margin-top:2px}
+.inv-pk{margin-bottom:12px}
