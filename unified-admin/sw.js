@@ -1,6 +1,6 @@
 /* النظام الإداري الموحّد — Service Worker
    يجب أن يطابق APP_VERSION في index.html */
-const APP_VERSION = '2.19.0';
+const APP_VERSION = '2.19.1';
 const CACHE = 'unified-admin-v' + APP_VERSION;
 
 /* لا تكرر أي مسار هنا — addAll يفشل عند التكرار */
