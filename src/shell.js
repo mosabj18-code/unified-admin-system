@@ -2,11 +2,17 @@
 /* =====================================================================
    النظام الإداري الموحّد — الهيكل العام
    ===================================================================== */
-const APP_VERSION = '2.16.0';
-const BUILD_DATE  = '2026-10-08';
+const APP_VERSION = '2.17.0';
+const BUILD_DATE  = '2026-10-19';
 const APP_ID      = 'unified-admin-system';
 
 const CHANGELOG = [
+  { v:'2.17.0', date:'2026-10-19', items:[
+    'وحدة جديدة: إدارة المركبات — ملف لكل مركبة برقم إداري تلقائي (VEH-001) وبياناتها وصورتها والسائق المسؤول وعداد الكيلومترات',
+    'حالات المركبة (جاهزة، تحتاج صيانة، تحت الصيانة، متوقفة) ولوحة تحكم بإحصائيات حقيقية تفتح القائمة المفلترة',
+    'بحث بالرقم الإداري واللوحة والسائق والنوع، ومنع تكرار اللوحة، وأرشفة بدل الحذف مع تراجع',
+    'سجل متابعة لكل مركبة يحفظ كل تعديل وتغيير حالة، وسجل إسناد السائقين عند تغيير السائق، وطباعة ملف المركبة'
+  ]},
   { v:'2.16.0', date:'2026-10-08', items:[
     'مخزون الطعام: إضافة كراتين وحبات فرط بعملية واحدة — مثلاً «١ كرتونة (٢٠ حبة) + ١٠ حبات» تدخل ٣٠ حبة بسطر واحد',
     'والصرف كذلك: «٢ كرتونة + ٥ حبات» في سند واحد، مع حساب المجموع والمتبقي قبل التنفيذ',
@@ -145,12 +151,20 @@ const ICONS = {
   shield:['Shield','🛡️'], sparkles:['Sparkles','✨'], clock:['Alarm clock','⏰'], vibrate:['Vibration mode','📳'],
   party:['Party popper','🎉'], compass:['Compass','🧭'], search:['Magnifying glass tilted left','🔍'],
   question:['Red question mark','❓'], rocket:['Rocket','🚀'], label:['Label','🏷️'], chart:['Bar chart','📊'],
-  empty:['Hourglass not done','⏳'], person:['Bust in silhouette','👤'], checklist:['Clipboard','📋'], globe:['Globe with meridians','🌐']
+  empty:['Hourglass not done','⏳'], person:['Bust in silhouette','👤'], checklist:['Clipboard','📋'], globe:['Globe with meridians','🌐'],
+  vehicles:['Automobile','🚗']
+};
+// أيقونات مسطّحة بخطوط واضحة بألوان النظام (أخضر داكن للخط وفاتح للتعبئة) — بنفس مقاس الأيقونات الأخرى
+const FLAT_ICONS = {
+  vehicles:'<path class="f" d="M3.2 15.6v-3.1c0-.5.2-1 .6-1.4L5.5 9.4l1.6-3.3A2 2 0 0 1 8.9 5h6.2a2 2 0 0 1 1.8 1.1l1.6 3.3 1.7 1.7c.4.4.6.9.6 1.4v3.1a1 1 0 0 1-1 1H4.2a1 1 0 0 1-1-1z"/>'
+    + '<path d="M3.2 15.6v-3.1c0-.5.2-1 .6-1.4L5.5 9.4l1.6-3.3A2 2 0 0 1 8.9 5h6.2a2 2 0 0 1 1.8 1.1l1.6 3.3 1.7 1.7c.4.4.6.9.6 1.4v3.1a1 1 0 0 1-1 1H4.2a1 1 0 0 1-1-1z"/>'
+    + '<path d="M5.5 9.4h13M7 13h1.5M15.5 13H17"/><path class="w" d="M5.5 16.6v1.6a.8.8 0 0 0 .8.8h1.4a.8.8 0 0 0 .8-.8v-1.6M15.5 16.6v1.6a.8.8 0 0 0 .8.8h1.4a.8.8 0 0 0 .8-.8v-1.6"/>'
 };
 function iconUrl(folder){ return ICON_BASE + encodeURIComponent(folder) + '/3D/' + folder.toLowerCase().replace(/ /g,'_') + '_3d.png'; }
 function ico(key, size){
-  const d = ICONS[key] || ['', '•'];
   const st = size ? ` style="--s:${size}px"` : '';
+  if (FLAT_ICONS[key]) return `<svg class="i3d i3d-flat" viewBox="0 0 24 24" aria-hidden="true"${st}>${FLAT_ICONS[key]}</svg>`;
+  const d = ICONS[key] || ['', '•'];
   return `<img class="i3d" src="${iconUrl(d[0])}" alt="" aria-hidden="true" draggable="false" data-e="${d[1]}"${st} onerror="icoFail(this)">`;
 }
 function icoFail(img){
@@ -178,9 +192,10 @@ const MODULE_META = {
   fuel:     { name:'توزيع الوقود',        desc:'الوارد والتوزيع ولوحة التحكم حسب الجهة',             keys:['fuel2_in','fuel2_out'],                tint:'rgba(239,68,68,.14)' },
   inventory:{ name:'مخزون الطعام',        desc:'أصناف الطعام الاستهلاكية وسندات الصرف والاستلام',   keys:['inv_a','inv_w','inv_p'],               tint:'rgba(217,119,6,.16)' },
   cleaning: { name:'توزيع المنظفات',      desc:'المواد والمعقمات وسندات التوزيع',                    keys:['clean_a','clean_w'],                   tint:'rgba(20,184,166,.16)' },
-  custody:  { name:'إدارة العهد',         desc:'تسليم وإرجاع العهد وكشف عهدة كل شخص',               keys:['cust_a','cust_i','cust_r'],            tint:'rgba(236,72,153,.14)' }
+  custody:  { name:'إدارة العهد',         desc:'تسليم وإرجاع العهد وكشف عهدة كل شخص',               keys:['cust_a','cust_i','cust_r'],            tint:'rgba(236,72,153,.14)' },
+  vehicles: { name:'إدارة المركبات',      desc:'ملف لكل مركبة، طلبات الصيانة وتقاريرها وتكاليفها',   keys:['veh_v','veh_q','veh_m','veh_s'],       tint:'var(--accent-soft)', count:['veh_v','veh_q','veh_m'] }
 };
-const MODULE_ORDER  = ['equipment','payroll','wared','fuel','inventory','cleaning','custody'];
+const MODULE_ORDER  = ['equipment','payroll','wared','fuel','inventory','cleaning','custody','vehicles'];
 const BOTTOM_NAV    = ['home','equipment','payroll','wared'];
 const SYSTEM_PAGES  = { home:'الرئيسية', backup:'النسخ الاحتياطي', guide:'دليل المستخدم', settings:'الإعدادات' };
 const SETTINGS_KEYS = ['unified_theme','unified_layout','unified_settings','unified_letterhead'];
@@ -537,7 +552,10 @@ function countRawMap(map){ // map: key → raw string (من ملف نسخة)
   });
   return t;
 }
-function moduleRecords(id){ return MODULE_META[id].keys.reduce((s, k) => s + countKey(k), 0); }
+// مفاتيح الإعدادات لا تُحسب سجلات (count اختياري في MODULE_META)
+const recordKeys = id => MODULE_META[id].count || MODULE_META[id].keys;
+const recordMap = (id, map) => { const o = {}; recordKeys(id).forEach(k => { if (map && k in map) o[k] = map[k]; }); return o; };
+function moduleRecords(id){ return recordKeys(id).reduce((s, k) => s + countKey(k), 0); }
 function totalRecords(){ return MODULE_ORDER.reduce((s, id) => s + moduleRecords(id), 0); }
 function isMounted(id){ const el = $('#page-' + id); return el && !el.hasAttribute('data-placeholder'); }
 
@@ -594,6 +612,7 @@ PAGE_RENDERERS.fuel = () => { if (window.FU) FU.onShow(); };
 PAGE_RENDERERS.inventory = () => { if (window.INV) INV.onShow(); };
 PAGE_RENDERERS.cleaning = () => { if (window.CL) CL.onShow(); };
 PAGE_RENDERERS.custody = () => { if (window.CU) CU.onShow(); };
+PAGE_RENDERERS.vehicles = () => { if (typeof VH !== 'undefined') VH.onShow(); };
 
 /* صفحة وحدة لم تُدمج بعد */
 function renderModulePlaceholder(id){
@@ -858,7 +877,7 @@ $('#restoreInput').addEventListener('change', async e => {
 });
 function previewRestore(data, fileName){
   const rows = MODULE_ORDER.map(id => {
-    const inFile = countRawMap(data.modules[id]), now = moduleRecords(id);
+    const inFile = countRawMap(recordMap(id, data.modules[id])), now = moduleRecords(id);
     return `<tr><td>${ico(id)}${MODULE_META[id].name}</td><td class="num">${n(inFile)}</td><td class="num muted">${n(now)}</td></tr>`;
   }).join('');
   const newer = String(data.version || '0').split('.')[0] > APP_VERSION.split('.')[0];
@@ -891,7 +910,7 @@ async function applyRestore(data){
     MODULE_ORDER.forEach(id => {
       const map = data.modules[id]; if (!map) return;
       MODULE_META[id].keys.forEach(k => { if (k in map){ localStorage.setItem(k, map[k]); } });
-      restored += countRawMap(map);
+      restored += countRawMap(recordMap(id, map));
     });
     if (data.settings) SETTINGS_KEYS.forEach(k => {
       if (k === 'unified_settings' && data.settings[k]){ // نحافظ على حالة الترحيب والتثبيت الحالية
@@ -926,7 +945,7 @@ async function renderBackup(){
       <div><h2>النسخ الاحتياطي</h2><p>ملف واحد يحفظ بيانات كل الوحدات، تقدر ترجعه على نفس الجهاز أو جهاز جديد.</p></div></div>
     <div class="grid-2">
       <div class="card action-card">
-        <div class="top">${ico('outbox')}<div><h3>إنشاء نسخة احتياطية</h3><p>ينزّل ملف JSON فيه بيانات الوحدات السبعة والإعدادات.</p></div></div>
+        <div class="top">${ico('outbox')}<div><h3>إنشاء نسخة احتياطية</h3><p>ينزّل ملف JSON فيه بيانات كل الوحدات والإعدادات.</p></div></div>
         <div class="row">${status}<span class="pill info num">${n(totalRecords())} سجل على الجهاز</span></div>
         <button class="btn btn-primary" onclick="exportBackup()">تنزيل نسخة احتياطية</button>
       </div>
@@ -1016,7 +1035,7 @@ function showWelcome(){
     const ent = openOverlay(`
       <div class="hero-ico">${ico('sparkles')}</div>
       <h3>أهلاً بك في النظام الإداري الموحّد</h3>
-      <p class="lead">سبع وحدات في تطبيق واحد. ثلاث أشياء تساعدك من البداية:</p>
+      <p class="lead">${n(MODULE_ORDER.length)} وحدات في تطبيق واحد. ثلاث أشياء تساعدك من البداية:</p>
       <div class="welcome-steps">
         <div>${ico('compass')}<span>تنقّل من القائمة الجانبية على الكمبيوتر، ومن الشريط السفلي على الجوال.</span></div>
         <div>${ico('bell')}<span>كل عملية يظهر لها إشعار يوضّح النتيجة: نجاح أو خطأ وسببه.</span></div>
@@ -1133,7 +1152,7 @@ function showChangelog(){
 const GUIDE = [
   { icon:'rocket', t:'البدء السريع', b:`
     <p>عند فتح التطبيق يمر بهذا التسلسل: شاشة البداية ← عرض تثبيت التطبيق (إن لم يكن مثبّتاً) ← شاشة الترحيب (أول مرة فقط) ← الشاشة الرئيسية.</p>
-    <p>الشاشة الرئيسية تعرض اليوم والتاريخ الميلادي والهجري، عدد التنبيهات، وقت آخر نسخة احتياطية، ثم قائمة التنبيهات وبطاقات الوحدات السبعة.</p>` },
+    <p>الشاشة الرئيسية تعرض اليوم والتاريخ الميلادي والهجري، عدد التنبيهات، وقت آخر نسخة احتياطية، ثم قائمة التنبيهات وبطاقات الوحدات.</p>` },
   { icon:'mobile', t:'تثبيت التطبيق على الشاشة الرئيسية', b:`
     <p><b>أندرويد وكروم على الكمبيوتر:</b> اضغط «تثبيت الآن» في الرسالة التي تظهر عند الفتح، أو من الإعدادات ← تثبيت التطبيق.</p>
     <p><b>آيفون:</b> من Safari اضغط زر المشاركة ⬆︎ ثم «إضافة إلى الشاشة الرئيسية».</p>
@@ -1248,7 +1267,14 @@ const GUIDE = [
     <p>لا يمكن حذف إضافة إذا صار المتاح سالباً، ولا حذف تسليم له إرجاعات مسجّلة — احذف الإرجاعات أولاً. الفلتر أعلى الصفحة فيه حقل شخص إضافة للصنف والمدى الزمني.</p>` },
   { icon:'sun', t:'المظهر والاهتزاز', b:`
     <p>زر 🌙/☀️ بالأعلى يبدّل بين الفاتح والداكن، ويُحفظ اختيارك. الاهتزاز الخفيف عند اللمس يمكن إيقافه من الإعدادات.</p>` },
-  { icon:'chart', t:'الوحدات السبعة', b:`
+  { icon:'vehicles', t:'إدارة المركبات', b:`
+    <p>لكل مركبة ملف مستقل برقم إداري يُنشأ تلقائياً (VEH-001، VEH-002…).</p>
+    <ul><li><b>إضافة مركبة:</b> زر «مركبة جديدة» — الشركة والطراز واللوحة إلزامية، والباقي اختياري (السنة، اللون، الصورة، السائق وهاتفه، العداد). لا يمكن تسجيل نفس رقم اللوحة مرتين حتى لو اختلفت الشرطات أو كُتبت بأرقام عربية.</li>
+    <li><b>لوحة التحكم:</b> إجمالي المركبات وأعدادها حسب الحالة — اضغط أي بطاقة لتفتح قائمة المركبات بتلك الحالة.</li>
+    <li><b>ملف المركبة:</b> اضغط على المركبة. فيه البيانات الأساسية، وأزرار تغيير الحالة، وسجل المتابعة الذي يحفظ كل تعديل بتاريخه ومن قام به، وزر «طباعة الملف».</li>
+    <li><b>تغيير السائق:</b> من «تعديل البيانات». السائق السابق يبقى في «سجل إسناد السائقين» بتاريخ بداية ونهاية فترته.</li>
+    <li><b>الأرشفة:</b> المركبة المباعة أو المشطوبة تُؤرشف ولا تُحذف — تختفي من القوائم والإحصائيات ويبقى ملفها كاملاً. علّم «المؤرشفة» في القائمة لتراها وتستعيدها.</li></ul>` },
+  { icon:'chart', t:'الوحدات', b:`
     <ul>${MODULE_ORDER.map(id => `<li><b>${MODULE_META[id].name}:</b> ${MODULE_META[id].desc}.</li>`).join('')}</ul>
     <p>الوحدات التي عليها «قيد الدمج» تُستخدم حالياً من ملفاتها المستقلة، وبياناتها تدخل في النسخة الاحتياطية.</p>` },
   { icon:'question', t:'أسئلة شائعة', b:`

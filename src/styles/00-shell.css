@@ -82,6 +82,8 @@ a{color:var(--accent-text)}
 .i3d{display:inline-block;width:var(--s,28px);height:var(--s,28px);object-fit:contain;flex:none;
   filter:drop-shadow(0 3px 4px rgba(0,0,0,.18));user-select:none;-webkit-user-drag:none}
 .i3d-fb{display:inline-grid;place-items:center;width:var(--s,28px);height:var(--s,28px);font-size:calc(var(--s,28px)*.82);line-height:1;flex:none}
+.i3d-flat{filter:none;fill:none;stroke:var(--accent);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.i3d-flat .f{fill:var(--accent-soft);stroke:none}
 /* أيقونات خطية للأزرار الصغيرة */
 .ico{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex:none}
 
