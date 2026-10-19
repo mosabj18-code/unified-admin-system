@@ -8,6 +8,8 @@ const ok = (c, m) => { if (c) pass++; else fail.push(m); console.log((c ? '  ✔
 const b = await chromium.launch({ ...(process.env.PW_CHROME ? { executablePath: process.env.PW_CHROME } : {}) });
 const ctx = await b.newContext({ viewport:{ width:390, height:844 } });
 const p = await ctx.newPage(); const errs = [];
+// تاريخ ثابت حتى لا تتغيّر نتائج «هذا الشهر» و«الشهر السابق» والمواعيد مع مرور الوقت
+await p.clock.setFixedTime(new Date('2026-10-19T10:00:00'));
 p.on('console', m => { if (m.type() === 'error' && !/403|favicon|Failed to load resource/.test(m.text())) errs.push(m.text()); });
 p.on('pageerror', e => errs.push('PAGEERROR ' + e.message));
 await p.goto(URL); await p.waitForTimeout(800);
@@ -288,6 +290,115 @@ const bk2 = await p.evaluate(async () => {
   return JSON.parse(r);
 });
 ok(bk2.blobs && bk2.blobs.vehicles && Object.keys(bk2.blobs.vehicles.atts).length === 2, 'المرفقات (صورة العطل والفاتورة) داخل النسخة الاحتياطية');
+
+// ===== المرحلة الثالثة: الصيانة الدورية والتنبيهات والتقارير =====
+await clean(); await p.evaluate(() => VH.showView('dash'));
+// تقرير زيت قديم للمركبة الثانية (٢٠٢٦-٠٦-٠١) ← موعد الزيت (٩٠ يوماً) متأخر
+await p.evaluate(id => VH.openReportForm(null, id), id2); await p.waitForTimeout(300);
+await p.selectOption('.overlay #vh-m-type', 'تغيير زيت المحرك'); await p.fill('.overlay #vh-m-work', 'تغيير زيت'); await p.fill('.overlay #vh-m-pc', '80');
+await p.fill('.overlay #vh-m-date', '2026-06-01'); await p.fill('.overlay #vh-m-odo', '40000');
+await p.locator('.overlay [data-save]').click(); await p.waitForTimeout(400); await clean();
+
+// ٢٣. حساب المواعيد والتنبيهات
+const sc2 = await p.evaluate(id => VH.schedules(id), id2);
+const oil2 = sc2.find(s => s.kind === 'oil');
+ok(oil2 && oil2.dueDate === '2026-08-30' && oil2.dueKm === 45000 && oil2.state === 'overdue', 'موعد الزيت = آخر تغيير + ٩٠ يوماً أو + ٥٠٠٠ كم، والحالة متأخرة');
+const sc1 = await p.evaluate(id => VH.schedules(id), id1);
+ok(sc1.find(s => s.kind === 'oil').dueDate === '2027-01-03', 'زيت المركبة الأولى من آخر تغيير زيت (٢٠٢٦-١٠-٠٥ + ٩٠)');
+ok(sc1.some(s => s.kind === 'custom' && s.dueDate === '2027-01-15'), 'الموعد المحدد يدوياً في التقرير يُتابَع');
+await p.evaluate(() => VH.showView('dash')); await p.waitForTimeout(150);
+const kpi = name => p.evaluate(n => [...document.querySelectorAll('#vh-kpis .mk-kpi')].find(x => x.querySelector('small').textContent === n).querySelector('b').textContent.trim(), name);
+ok(await kpi('الصيانة المستحقة') === '١', 'بطاقة «الصيانة المستحقة» = ١');
+ok(await p.locator('#vh-dash-alerts .vh-alert.high', { hasText:'تغيير زيت المحرك' }).count() === 1, 'تنبيه الزيت المتأخر في اللوحة باسم المركبة والسبب');
+ok(/٣٠\/٠٨\/٢٠٢٦/.test((await p.textContent('#vh-dash-alerts')).replace(/[‎‏]/g, '')) && /٤٥٬٠٠٠ كم/.test(await p.textContent('#vh-dash-alerts')), 'التنبيه يعرض تاريخ الاستحقاق والعداد المستهدف');
+const a1 = await p.evaluate(() => VH.vehicleAlerts().map(a => a.key)), a2 = await p.evaluate(() => VH.vehicleAlerts().map(a => a.key));
+ok(a1.length === new Set(a1).size && a1.join() === a2.join(), 'لا تنبيهات مكررة للحدث نفسه');
+ok(await p.evaluate(() => VH.alerts().some(a => /صيانة متأخرة/.test(a.title))), 'تنبيه الصيانة المتأخرة بالرئيسية');
+await p.locator('#vh-dash-alerts .vh-alert.high', { hasText:'تغيير زيت المحرك' }).click(); await p.waitForTimeout(300);
+ok(await p.evaluate(() => document.getElementById('vh-view-file').classList.contains('active')) && /Toyota Hilux/.test(await p.textContent('#vh-view-file h2')), 'الضغط على التنبيه يفتح ملف المركبة');
+ok(await p.locator('#vh-view-file .vh-sched-row.overdue').count() >= 1, 'ملف المركبة يعرض البند المتأخر');
+await p.screenshot({ path:SHOT('veh_file_sched_mobile.png') });
+
+// ٢٤. فترات لكل مركبة على حدة
+await p.evaluate(id => VH.openIntervals(id), id2); await p.waitForTimeout(250);
+await p.fill('.overlay #vh-iv-oilKm', '0'); await p.fill('.overlay #vh-iv-oilDays', '0');
+await p.locator('.overlay [data-save]').click(); await p.waitForTimeout(300); await clean();
+ok(!(await p.evaluate(id => VH.schedules(id), id2)).some(s => s.kind === 'oil'), 'إيقاف متابعة الزيت لمركبة واحدة');
+ok((await p.evaluate(id => VH.schedules(id), id1)).some(s => s.kind === 'oil'), 'المركبات الأخرى باقية على الافتراضي');
+await p.evaluate(id => VH.openIntervals(id), id2); await p.waitForTimeout(250);
+await p.fill('.overlay #vh-iv-oilKm', '20000'); await p.fill('.overlay #vh-iv-oilDays', '400');
+await p.locator('.overlay [data-save]').click(); await p.waitForTimeout(300); await clean();
+ok((await p.evaluate(id => VH.schedules(id), id2)).find(s => s.kind === 'oil').dueDate === '2027-07-06', 'فترة خاصة ٤٠٠ يوم تغيّر الموعد');
+await p.evaluate(id => VH.openIntervals(id), id2); await p.waitForTimeout(250);
+await p.locator('.overlay [data-reset]').click(); await p.waitForTimeout(300); await clean();
+
+// ٢٥. تحت الصيانة لفترة طويلة
+await p.evaluate(() => { const v = VH._data.vehicles[0]; v.status = 'under'; const d = new Date(); d.setDate(d.getDate() - 10); v.statusSince = d.toISOString(); });
+ok(await p.evaluate(() => VH.vehicleAlerts().some(a => a.kind === 'long')), 'تنبيه «تحت الصيانة لفترة طويلة» بعد ٧ أيام');
+
+// ٢٦. تكاليف الصيانة حسب الفترة
+await p.evaluate(() => VH.showView('dash')); await p.waitForTimeout(150);
+const costTxt = () => p.textContent('#vh-dash-cost b');
+ok(/٥٥٠٫٥/.test(await costTxt()), 'تكاليف هذا الشهر = ٤٣٠٫٥ + ١٢٠ = ٥٥٠٫٥');
+await p.locator('#vh-dash-cost button', { hasText:'هذه السنة' }).click(); await p.waitForTimeout(100);
+ok(/٦٣٠٫٥/.test(await costTxt()), 'تكاليف هذه السنة = ٦٣٠٫٥ (تشمل تقرير يونيو)');
+await p.locator('#vh-dash-cost button', { hasText:'الشهر السابق' }).click(); await p.waitForTimeout(100);
+ok(/^٠ ₪$/.test((await costTxt()).trim()), 'الشهر السابق بدون صيانة = ٠');
+await p.locator('#vh-dash-cost button', { hasText:'فترة مخصصة' }).click(); await p.waitForTimeout(100);
+await p.fill('#vh-cp-from', '2026-06-01'); await p.dispatchEvent('#vh-cp-from', 'change'); await p.waitForTimeout(80);
+await p.fill('#vh-cp-to', '2026-06-30'); await p.dispatchEvent('#vh-cp-to', 'change'); await p.waitForTimeout(80);
+ok(/٨٠/.test(await costTxt()), 'فترة مخصصة (يونيو) = ٨٠');
+await p.locator('#vh-dash-cost button', { hasText:'هذا الشهر' }).click(); await p.waitForTimeout(100);
+await clean(); await p.screenshot({ path:SHOT('veh_dash_full_mobile.png'), fullPage:true });
+
+// ٢٧. التقارير السبعة
+await p.evaluate(() => VH.showView('rep')); await p.waitForTimeout(150);
+const runRep = async (kind, setup) => { await p.selectOption('#vh-rp-kind', kind); await p.waitForTimeout(60); if (setup) await setup(); await p.locator('#vh-view-rep button', { hasText:'عرض التقرير' }).click(); await p.waitForTimeout(200); return p.textContent('#vh-rp-out'); };
+let t = await runRep('fleet');
+ok(/التقرير الشامل للمركبات/.test(t) && await p.locator('#vh-rp-out tbody tr:not(.tot)').count() === 2, 'الشامل: المركبتان النشطتان');
+await p.check('#vh-rp-arch'); t = await runRep('fleet'); await p.uncheck('#vh-rp-arch');
+ok(await p.locator('#vh-rp-out tbody tr:not(.tot)').count() === 3, 'الشامل مع المؤرشفة: ٣');
+t = await runRep('vehicle', async () => { await p.selectOption('#vh-rp-veh', ''); });
+ok(await p.evaluate(() => document.getElementById('vh-rp-veh').classList.contains('invalid')), 'تقرير مركبة محددة يطلب اختيار المركبة');
+t = await runRep('vehicle', async () => { await p.selectOption('#vh-rp-veh', id1); });
+ok(/٥٥٠٫٥/.test(t) && /Kia Forte/.test(t), 'تقرير صيانة Kia: الإجمالي ٥٥٠٫٥');
+t = await runRep('vehicle', async () => { await p.fill('#vh-rp-from', '2026-10-10'); });
+ok(/٤٣٠٫٥/.test(t) && !/٥٥٠٫٥/.test(t), 'التقرير يلتزم بالفترة المحددة');
+await p.fill('#vh-rp-from', ''); await p.selectOption('#vh-rp-veh', '');
+t = await runRep('requests');
+ok(/تقرير طلبات الصيانة/.test(t) && await p.evaluate(() => [...document.querySelectorAll('#vh-rp-out .mk-kpi')].map(k => k.textContent).join('|')).then(x => /المفتوحة١/.test(x.replace(/\s/g, '')) && /المكتملة١/.test(x.replace(/\s/g, ''))), 'طلبات الصيانة: ١ مفتوح و١ مكتمل');
+t = await runRep('requests', async () => { await p.selectOption('#vh-rp-status', 'done'); });
+ok(await p.evaluate(() => document.querySelectorAll('#vh-rp-out .mk-table-card')[1].querySelectorAll('tbody tr').length) === 1, 'تصفية تقرير الطلبات بالحالة');
+await p.selectOption('#vh-rp-status', '');
+t = await runRep('costs');
+ok(/٦٣٠٫٥/.test(t), 'تقرير التكاليف: الإجمالي ٦٣٠٫٥ بدون احتساب مزدوج');
+t = await runRep('periodic');
+ok(/متأخرة/.test(t) && await p.locator('#vh-rp-out tbody tr').count() >= 4, 'تقرير الصيانة الدورية يعرض المواعيد وحالتها');
+t = await runRep('drivers');
+ok(/أحمد محمود/.test(t) && /سامي عادل/.test(t) && /محمد علي/.test(t) && /سابق/.test(t), 'تقرير السائقين يحفظ سجل الإسناد السابق');
+t = await runRep('expenses', async () => { await p.selectOption('#vh-rp-group', 'month'); });
+ok(await p.locator('#vh-rp-out tr.sub').count() === 2 && /يونيو/.test(t) && /أكتوبر/.test(t), 'المصروفات مجمّعة حسب الشهر مع مجموع لكل شهر');
+ok(/٦٣٠٫٥/.test(await p.textContent('#vh-rp-out tr.tot')), 'إجمالي المصروفات = ٦٣٠٫٥');
+await p.screenshot({ path:SHOT('veh_reports_mobile.png') });
+
+// ٢٨. تصدير Excel وطباعة التقرير
+const dl = await p.evaluate(async () => {
+  const oClick = HTMLAnchorElement.prototype.click; let info = null;
+  HTMLAnchorElement.prototype.click = function(){ info = { name:this.download, href:this.href }; };
+  VH.exportReportExcel();
+  HTMLAnchorElement.prototype.click = oClick;
+  const buf = await (await fetch(info.href)).arrayBuffer();
+  const wb = await XLSX.read(buf, { type:'array' });
+  return { name:info.name, sheets:wb.SheetNames, rows: XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[1]], { header:1 }).length };
+});
+ok(/^تقرير_المصروفات_\d{4}-\d{2}-\d{2}\.xlsx$/.test(dl.name), 'اسم ملف Excel يحمل التقرير والتاريخ (' + dl.name + ')');
+ok(dl.sheets[0] === 'الملخص' && dl.rows >= 6, 'ملف Excel فيه الملخص والتفاصيل (' + dl.sheets.join('، ') + ')');
+pop = ctx.waitForEvent('page');
+await p.evaluate(() => VH.printCurrentReport());
+w = await pop; await w.waitForLoadState('domcontentloaded');
+const ph = await w.content();
+ok(/dir="rtl"/.test(ph) && /تقرير المصروفات/.test(ph) && /تاريخ الإنشاء/.test(ph), 'الطباعة: RTL وعنوان وتاريخ إنشاء');
+await w.close();
 
 // لقطة كمبيوتر
 await p.setViewportSize({ width:1280, height:860 }); await p.waitForTimeout(300);

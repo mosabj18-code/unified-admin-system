@@ -199,7 +199,7 @@ function counts(){
 }
 
 /* ---------- الواجهة ---------- */
-const VIEWS = [['dash', 'لوحة التحكم', 'chart'], ['list', 'المركبات', 'vehicles'], ['req', 'طلبات الصيانة', 'bell'], ['mnt', 'سجل الصيانة', 'checklist']];
+const VIEWS = [['dash', 'لوحة التحكم', 'chart'], ['list', 'المركبات', 'vehicles'], ['req', 'طلبات الصيانة', 'bell'], ['mnt', 'سجل الصيانة', 'calendar'], ['rep', 'التقارير', 'checklist']];
 function buildUI(){
   const root = document.getElementById('page-vehicles');
   root.removeAttribute('data-placeholder');
@@ -218,6 +218,8 @@ function buildUI(){
   <section class="mk-view active" id="vh-view-dash">
     <div id="vh-dash-urgent"></div>
     <div class="mk-kpis vh-kpis" id="vh-kpis"></div>
+    <div class="mk-card mk-pad mk-section" id="vh-dash-cost"></div>
+    <div class="mk-card mk-pad mk-section" id="vh-dash-alerts"></div>
     <div class="mk-card mk-pad mk-section" id="vh-dash-recent"></div>
   </section>
 
@@ -261,6 +263,22 @@ function buildUI(){
     </div>
   </section>
 
+  <section class="mk-view" id="vh-view-rep">
+    <div class="mk-card mk-pad mk-section">
+      <div class="mk-grid vh-rep-form">
+        <div class="mk-field wide2"><label for="vh-rp-kind">التقرير</label><select class="mk-inp" id="vh-rp-kind" onchange="VH.syncRepForm()">${REPORTS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></div>
+        <div class="mk-field"><label for="vh-rp-veh" id="vh-rp-veh-l">المركبة</label><select class="mk-inp" id="vh-rp-veh"></select></div>
+        <div class="mk-field"><label for="vh-rp-from">من تاريخ</label><input class="mk-inp" type="date" id="vh-rp-from"></div>
+        <div class="mk-field"><label for="vh-rp-to">إلى تاريخ</label><input class="mk-inp" type="date" id="vh-rp-to"></div>
+        <div class="mk-field"><label for="vh-rp-status">الحالة</label><select class="mk-inp" id="vh-rp-status"></select></div>
+        <div class="mk-field"><label for="vh-rp-pri">الأولوية</label><select class="mk-inp" id="vh-rp-pri"><option value="">كل الأولويات</option>${PRIORITY_KEYS.map(k => `<option value="${k}">${PRIORITY[k].label}</option>`).join('')}</select></div>
+        <div class="mk-field"><label for="vh-rp-group">التجميع</label><select class="mk-inp" id="vh-rp-group"><option value="vehicle">حسب المركبة</option><option value="month">حسب الشهر</option></select></div>
+      </div>
+      <div class="mk-btns"><button class="btn btn-primary" onclick="VH.runReport()">عرض التقرير</button><label class="vh-check"><input type="checkbox" id="vh-rp-arch"> تشمل المؤرشفة</label></div>
+    </div>
+    <div id="vh-rp-out"><div class="mk-card mk-pad"><div class="vh-empty">${ico('checklist', 52)}<b>اختر التقرير واضغط «عرض التقرير»</b><p>كل التقارير محسوبة من البيانات المحفوظة فعلياً، وتقدر تطبعها أو تحفظها PDF أو تصدّرها Excel.</p></div></div></div>
+  </section>
+
   <section class="mk-view" id="vh-view-file"></section>`;
 }
 
@@ -268,7 +286,7 @@ function showView(v, silent){
   if (v !== 'file') fileId = null;
   view = v;
   VIEWS.forEach(([k]) => { const t = $id('tab-' + k); t.classList.toggle('active', k === v); t.setAttribute('aria-selected', k === v); });
-  ['dash', 'list', 'req', 'mnt', 'file'].forEach(k => $id('view-' + k).classList.toggle('active', k === v));
+  ['dash', 'list', 'req', 'mnt', 'rep', 'file'].forEach(k => $id('view-' + k).classList.toggle('active', k === v));
   $id('tabs').hidden = v === 'file';
   render();
   if (silent !== true) vib(8);
@@ -278,6 +296,7 @@ function render(){
   else if (view === 'list') renderList();
   else if (view === 'req') renderReqs();
   else if (view === 'mnt') renderMnts();
+  else if (view === 'rep') renderReportsView();
   else if (view === 'file') renderFile();
   const open = requests.filter(isOpenReq), urgent = open.filter(r => r.priority === 'urgent').length, b = $id('req-badge');
   if (b){ b.textContent = open.length ? num(open.length) : ''; b.classList.toggle('show', !!open.length); b.classList.toggle('mid', !urgent); }
@@ -293,7 +312,18 @@ function renderDash(){
     card('needs', 'تحتاج إلى صيانة', c.needs, 'warn', "VH.filterStatus('needs')") +
     card('under', 'تحت الصيانة', c.under, '', "VH.filterStatus('under')") +
     card('stopped', 'المركبات المتوقفة', c.stopped, 'bad', "VH.filterStatus('stopped')") +
-    card('open', 'طلبات الصيانة المفتوحة', requests.filter(isOpenReq).length, 'warn', "VH.filterRequests({status:'open'})");
+    card('open', 'طلبات الصيانة المفتوحة', requests.filter(isOpenReq).length, 'warn', "VH.filterRequests({status:'open'})") +
+    card('due', 'الصيانة المستحقة', dueVehicles().size, dueVehicles().size ? 'bad' : '', "VH.showDueAlerts()");
+  const pr = periodRange(costPeriod);
+  $id('dash-cost').innerHTML = `<div class="vh-cost-card"><div class="grow"><small>إجمالي تكاليف الصيانة — ${esc(pr.label)}</small><b class="num">${money(costIn(pr.from, pr.to))}</b>
+      <span class="muted num">${num(reports.filter(m => inRange(m.date, pr.from, pr.to)).length)} عملية صيانة</span></div>
+    <div class="vh-cost-tools"><div class="mk-seg">${[['month', 'هذا الشهر'], ['prev', 'الشهر السابق'], ['year', 'هذه السنة'], ['custom', 'فترة مخصصة']].map(([k, l]) => `<button type="button" aria-pressed="${costPeriod.mode === k}" onclick="VH.setCostPeriod('${k}')">${l}</button>`).join('')}</div>
+      ${costPeriod.mode === 'custom' ? `<div class="vh-cost-range"><input class="mk-inp" type="date" id="vh-cp-from" value="${costPeriod.from}" onchange="VH.setCostPeriod('custom')"><span>←</span><input class="mk-inp" type="date" id="vh-cp-to" value="${costPeriod.to}" onchange="VH.setCostPeriod('custom')"></div>` : ''}
+      <button class="btn btn-sm" onclick="VH.openCostReports()">تفاصيل التكاليف</button></div></div>`;
+  const al = vehicleAlerts();
+  $id('dash-alerts').innerHTML = `<div class="mk-title"><span>تنبيهات الصيانة <span class="pill ${al.some(a => a.severity === 'high') ? 'high' : al.length ? 'mid' : 'ok'} num">${num(al.length)}</span></span><button class="btn btn-sm" onclick="VH.openIntervals()">الفترات الافتراضية</button></div>` +
+    (al.length ? `<div class="vh-alerts">${al.map(a => { const v = vById(a.vid); return `<button class="vh-alert ${a.severity}" onclick="VH.openFile('${a.vid}')"><span class="vh-alert-dot"></span><div class="grow"><b>${esc(vName(v))} <span class="muted num">${ltr(v.code)}</span></b><span>${esc(a.title)}</span><small class="num">${a.due ? 'الاستحقاق: ' + esc(a.due) + ' · ' : ''}${esc(a.text)}</small></div><span class="pill ${a.severity === 'high' ? 'high' : 'mid'}">${a.severity === 'high' ? 'عاجل' : 'قريب'}</span></button>`; }).join('')}</div>`
+      : `<p class="muted vh-ok">✓ لا توجد مواعيد مستحقة ولا طلبات عاجلة.</p>`);
   const urgent = requests.filter(r => isOpenReq(r) && r.priority === 'urgent').sort(byDateDesc);
   $id('dash-urgent').innerHTML = urgent.length ? `<div class="mk-banner bad"><div class="grow"><b>⚡ ${num(urgent.length)} ${urgent.length === 1 ? 'طلب صيانة عاجل مفتوح' : 'طلبات صيانة عاجلة مفتوحة'}</b><br>${urgent.slice(0, 3).map(r => `${esc(r.code)} — ${esc(r.vSnap?.name)}: ${esc(r.type)}`).join(' · ')}</div><button class="btn btn-sm" onclick="VH.filterRequests({status:'open',pri:'urgent'})">عرضها</button></div>` : '';
   const recent = activeVehicles().slice().sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '')).slice(0, 6);
@@ -301,6 +331,7 @@ function renderDash(){
     (recent.length ? `<div class="vh-mini">${recent.map(v => `<button class="vh-mini-row" onclick="VH.openFile('${v.id}')"><b>${esc(vName(v))}</b><span class="muted num">${esc(v.code)} · ${ltr(v.plate)}</span>${statusPill(v.status)}</button>`).join('')}</div>`
       : emptyState('لا توجد مركبات بعد', 'ابدأ بإضافة أول مركبة، وكل بياناتها وصيانتها رح تنحفظ بملفها.', '<button class="btn btn-primary" onclick="VH.openVehicleForm()">إضافة مركبة</button>'));
 }
+function showDueAlerts(){ showView('dash', true); const el = $id('dash-alerts'); if (el && el.scrollIntoView) el.scrollIntoView({ behavior:'smooth', block:'start' }); }
 function emptyState(title, msg, btn){ return `<div class="vh-empty">${carIco(56)}<b>${title}</b><p>${msg}</p>${btn || ''}</div>`; }
 function filterStatus(s){
   showView('list', true);
@@ -417,7 +448,7 @@ function openVehicleForm(id){
       notify({ type:'success', title:'تم حفظ بيانات المركبة', msg:`${vName(ex)} — ${ex.code}${changes.length ? '. التغييرات مسجّلة في سجل المتابعة.' : ''}`, page:'vehicles' });
     } else {
       const no = nextNo(vehicles);
-      const v = { id:newId('veh'), no, code:vCode(no), ...data, odometer:odo, odoDate: odo != null ? todayISO() : '', photo,
+      const v = { id:newId('veh'), no, code:vCode(no), ...data, odometer:odo, odoStart:odo, odoDate: odo != null ? todayISO() : '', photo,
         statusSince:now, archived:false, drivers:[], log:[], createdAt:now, updatedAt:now, by };
       if (v.driver) v.drivers.push({ name:v.driver, phone:v.driverPhone, from:todayISO(), to:'' });
       logEvent(v, 'إضافة المركبة إلى النظام' + (v.driver ? ` — السائق: ${v.driver}` : ''), by);
@@ -531,6 +562,7 @@ function fileInfo(v){
         ${row('رقم اللوحة', `<span class="num">${ltr(v.plate)}</span>`)}${row('سنة الصنع', `<span class="num">${esc(v.year)}</span>`)}${row('اللون', esc(v.color))}
         ${row('تاريخ الإضافة', fmtDate(v.added))}${row('الحالة', STATUS[v.status]?.label)}${row('أدخلها', esc(v.by))}
       </div>${v.notes ? `<div class="vh-notes"><small>ملاحظات</small><p>${esc(v.notes)}</p></div>` : ''}</div>
+    ${fileSchedules(v)}
     <div class="mk-card mk-pad mk-section"><div class="mk-title"><span>السائق المسؤول</span></div>
       <div class="mk-detail vh-detail">${row('الاسم', esc(v.driver))}${row('الهاتف', v.driverPhone ? `<a class="num" href="tel:${esc(v.driverPhone)}">${esc(v.driverPhone)}</a>` : '')}</div>
       ${drivers.length > 1 || (drivers[0] && drivers[0].to) ? `<div class="mk-title" style="margin-top:14px"><span>سجل إسناد السائقين</span></div>
@@ -562,6 +594,13 @@ function fileCosts(v){
     <div class="mk-scroll"><table class="mk-table vh-table"><thead><tr><th>التقرير</th><th>التاريخ</th><th>النوع</th><th>قطع الغيار</th><th>أجور العمل</th><th>إضافية</th><th>الإجمالي</th></tr></thead><tbody>
     ${list.length ? list.map(m => `<tr onclick="VH.openReport('${m.id}')"><td class="num">${ltr(m.code)}</td><td class="num">${fmtDate(m.date)}</td><td>${esc(m.type)}</td><td class="num">${money(m.partsCost)}</td><td class="num">${money(m.labor)}</td><td class="num">${money(m.extra)}</td><td class="num"><b>${money(reportTotal(m))}</b></td></tr>`).join('')
       + `<tr class="tot"><td colspan="3">الإجمالي</td><td class="num">${money(sum('partsCost'))}</td><td class="num">${money(sum('labor'))}</td><td class="num">${money(sum('extra'))}</td><td class="num"><b>${money(tot)}</b></td></tr>` : '<tr><td colspan="7" class="mk-empty">لا توجد مصاريف بعد.</td></tr>'}</tbody></table></div></div>`;
+}
+function fileSchedules(v){
+  const sc = schedules(v), iv = intervalsOf(v), custom = v.intervals && Object.keys(v.intervals).length;
+  const ST = { overdue:['high', 'متأخرة'], soon:['mid', 'قريبة'], ok:['ok', 'في موعدها'] };
+  return `<div class="mk-card mk-pad mk-section"><div class="mk-title"><span>الصيانة الدورية</span><button class="btn btn-sm" onclick="VH.openIntervals('${v.id}')">فترات الصيانة</button></div>
+    <p class="muted vh-iv-note">${custom ? 'فترات خاصة بهذه المركبة' : 'الفترات الافتراضية'}: الزيت ${iv.oilKm ? num(iv.oilKm) + ' كم' : '—'}${iv.oilDays ? ' / ' + num(iv.oilDays) + ' يوم' : ''} · الدورية ${iv.perKm ? num(iv.perKm) + ' كم' : '—'}${iv.perDays ? ' / ' + num(iv.perDays) + ' يوم' : ''}</p>
+    ${sc.length ? `<div class="vh-sched">${sc.map(x => `<div class="vh-sched-row ${x.state}"><div class="grow"><b>${esc(x.label)}</b><small class="num">آخر تنفيذ: ${x.last ? fmtDate(x.last.date) : 'لا يوجد — من تاريخ الإضافة'} · الاستحقاق: ${[x.dueDate ? fmtDate(x.dueDate) : '', x.dueKm != null ? num(x.dueKm) + ' كم' : ''].filter(Boolean).join(' أو ') || '—'}</small></div><span class="muted num">${esc(x.text)}</span><span class="pill ${ST[x.state][0]}">${ST[x.state][1]}</span></div>`).join('')}</div>` : '<p class="muted">لا توجد متابعة دورية لهذه المركبة.</p>'}</div>`;
 }
 function fileLog(v){
   if (!v.log.length) return `<div class="mk-card mk-pad">${emptyState('لا يوجد سجل بعد', 'كل تعديل أو تغيير حالة رح يظهر هون.', '')}</div>`;
@@ -989,6 +1028,285 @@ function openTypes(){
   });
 }
 
+/* ---------- الصيانة الدورية: الفترات والمواعيد ---------- */
+const DEFAULT_INTERVALS = { oilKm:5000, oilDays:90, perKm:10000, perDays:180, warnKm:500, warnDays:14, longDays:7 };
+const IV_LABELS = { oilKm:'الزيت كل (كم)', oilDays:'الزيت كل (يوم)', perKm:'الدورية كل (كم)', perDays:'الدورية كل (يوم)' };
+const globalIntervals = () => Object.assign({}, DEFAULT_INTERVALS, settings.intervals || {});
+// فترات المركبة: ما تحدده لمركبتها يتقدّم على الافتراضي (٠ = بدون متابعة لهذا البند)
+function intervalsOf(v){
+  const g = globalIntervals(), o = v.intervals || {}, out = { ...g };
+  ['oilKm', 'oilDays', 'perKm', 'perDays'].forEach(k => { if (o[k] !== undefined && o[k] !== null && o[k] !== '') out[k] = +o[k]; });
+  return out;
+}
+function addDays(iso, n){ const d = new Date(iso.slice(0, 10) + 'T00:00:00'); d.setDate(d.getDate() + n); return localISO(d); }
+function daysBetween(a, b){ return Math.round((new Date(b.slice(0, 10) + 'T00:00:00') - new Date(a.slice(0, 10) + 'T00:00:00')) / 86400000); }
+// مواعيد المركبة: الزيت والدورية من آخر تقرير بنفس النوع (أو من تاريخ الإضافة)، والموعد المحدد يدوياً في آخر تقرير
+function schedules(v){
+  const iv = intervalsOf(v), out = [], today = todayISO(), odo = v.odometer;
+  const evaluate = it => {
+    const dLeft = it.dueDate ? daysBetween(today, it.dueDate) : null, kLeft = it.dueKm != null && odo != null ? it.dueKm - odo : null;
+    it.daysLeft = dLeft; it.kmLeft = kLeft;
+    it.state = (dLeft != null && dLeft <= 0) || (kLeft != null && kLeft <= 0) ? 'overdue'
+      : (dLeft != null && dLeft <= iv.warnDays) || (kLeft != null && kLeft <= iv.warnKm) ? 'soon' : 'ok';
+    const parts = [];
+    if (dLeft != null) parts.push(dLeft < 0 ? `متأخر ${num(-dLeft)} يوم` : dLeft === 0 ? 'مستحق اليوم' : `بعد ${num(dLeft)} يوم`);
+    if (kLeft != null) parts.push(kLeft < 0 ? `تجاوز ${num(-kLeft)} كم` : kLeft === 0 ? 'وصل العداد' : `متبقٍ ${num(kLeft)} كم`);
+    it.text = parts.join(' أو ');
+    return it;
+  };
+  const plan = (kind, label, type, km, days) => {
+    if (!km && !days) return;
+    const last = vReports(v.id).filter(r => r.type === type).sort(byDateDesc)[0];
+    const baseDate = last ? last.date : (v.added || ''), baseKm = last ? (last.odometer ?? null) : (v.odoStart ?? null);
+    out.push(evaluate({ kind, label, last, dueDate: days && baseDate ? addDays(baseDate, days) : '', dueKm: km && baseKm != null ? baseKm + km : null }));
+  };
+  plan('oil', 'تغيير زيت المحرك', 'تغيير زيت المحرك', iv.oilKm, iv.oilDays);
+  plan('per', 'الصيانة الدورية', 'صيانة دورية', iv.perKm, iv.perDays);
+  // الموعد المحدد في تقرير: يُعتبر منجزاً إذا سُجّل بعده تقرير من نفس النوع
+  const np = nextPlanned(v.id);
+  if (np){
+    const done = vReports(v.id).some(r => r.id !== np.report.id && r.type === np.report.type && r.date > np.report.date);
+    if (!done) out.push(evaluate({ kind:'custom', label:'موعد محدد: ' + np.report.type, last:np.report, dueDate:np.date, dueKm:np.km }));
+  }
+  return out;
+}
+// تنبيهات المركبات — مفتاح لكل حدث فلا يتكرر التنبيه نفسه
+function vehicleAlerts(){
+  const res = new Map(), iv = globalIntervals();
+  const add = a => { if (!res.has(a.key)) res.set(a.key, a); };
+  activeVehicles().forEach(v => {
+    schedules(v).filter(s => s.state !== 'ok').forEach(s => add({ key:`${v.id}|${s.kind}`, vid:v.id, severity: s.state === 'overdue' ? 'high' : 'mid', kind:'due',
+      title: `${s.label} — ${s.state === 'overdue' ? 'تجاوز الموعد' : 'اقترب الموعد'}`, due:[s.dueDate ? fmtDate(s.dueDate) : '', s.dueKm != null ? num(s.dueKm) + ' كم' : ''].filter(Boolean).join(' أو '), text:s.text }));
+    vRequests(v.id).filter(r => isOpenReq(r) && r.priority === 'urgent').forEach(r => add({ key:`${v.id}|req|${r.id}`, vid:v.id, severity:'high', kind:'req', reqId:r.id,
+      title:`طلب صيانة عاجل مفتوح ${r.code}`, due:fmtDate(r.date), text:`${r.type} — ${REQ_STATUS[r.status].label}` }));
+    if (v.status === 'under' && v.statusSince){
+      const d = daysBetween(v.statusSince, todayISO()), lim = iv.longDays;
+      if (d > lim) add({ key:`${v.id}|long`, vid:v.id, severity:'mid', kind:'long', title:'تحت الصيانة لفترة طويلة', due:fmtDate(v.statusSince), text:`منذ ${num(d)} يوم (الحد ${num(lim)} أيام)` });
+    }
+  });
+  const rank = { high:0, mid:1 };
+  return [...res.values()].sort((a, b) => rank[a.severity] - rank[b.severity]);
+}
+const dueVehicles = () => new Set(vehicleAlerts().filter(a => a.kind === 'due').map(a => a.vid));
+
+/* ---------- نموذج فترات الصيانة (للمركبة أو الافتراضية) ---------- */
+function openIntervals(vehicleId){
+  const v = vehicleId ? vById(vehicleId) : null, g = globalIntervals(), cur = v ? (v.intervals || {}) : g;
+  const fields = v ? ['oilKm', 'oilDays', 'perKm', 'perDays'] : ['oilKm', 'oilDays', 'perKm', 'perDays', 'warnKm', 'warnDays', 'longDays'];
+  const L = Object.assign({}, IV_LABELS, { warnKm:'نبّه قبل الموعد بـ (كم)', warnDays:'نبّه قبل الموعد بـ (يوم)', longDays:'«تحت الصيانة طويلاً» بعد (يوم)' });
+  const sheet = App.sheet(`<div class="mk-form-head">${carIco(40)}<div><h3>${v ? 'فترات صيانة ' + esc(vName(v)) : 'الفترات الافتراضية للصيانة'}</h3>
+      <p>${v ? 'اترك الحقل فارغاً لاستعمال الافتراضي، واكتب ٠ لإيقاف متابعة البند لهذه المركبة.' : 'تُطبَّق على كل مركبة لم تحدد فتراتها الخاصة. اكتب ٠ لإيقاف البند.'}</p></div></div>
+    <div class="mk-grid">${fields.map(k => `<div class="mk-field"><label for="vh-iv-${k}">${L[k]}</label><input class="mk-inp num" inputmode="numeric" id="vh-iv-${k}" placeholder="${v ? 'الافتراضي: ' + g[k] : ''}" value="${cur[k] !== undefined && cur[k] !== null ? cur[k] : ''}"></div>`).join('')}</div>
+    <div class="actions"><button class="btn btn-primary" data-save>حفظ</button>${v ? '<button class="btn" data-reset>رجوع للافتراضي</button>' : ''}<button class="btn" data-cancel>إلغاء</button></div>`);
+  const q = s => sheet.ov.querySelector(s);
+  q('[data-cancel]').onclick = () => sheet.close();
+  if (q('[data-reset]')) q('[data-reset]').onclick = () => { v.intervals = {}; logEvent(v, 'فترات الصيانة: رجوع للافتراضي'); save(); sheet.close(); render(); notify({ type:'success', title:'رجعت فترات المركبة للافتراضي', log:false }); };
+  q('[data-save]').onclick = () => {
+    const out = {};
+    for (const k of fields){
+      const raw = q('#vh-iv-' + k).value.trim();
+      if (!raw){ if (!v) return markInvalid(q('#vh-iv-' + k), 'الحقل مطلوب', 'اكتب رقماً، أو ٠ للإيقاف.'); continue; }
+      const n = intVal(raw.replace(/[,٬]/g, ''));
+      if (n == null || n < 0) return markInvalid(q('#vh-iv-' + k), 'رقم غير صحيح', 'اكتب رقماً صحيحاً موجباً أو ٠.');
+      out[k] = n;
+    }
+    if (v){ v.intervals = out; logEvent(v, 'تعديل فترات الصيانة: ' + (Object.keys(out).map(k => `${IV_LABELS[k]} ${num(out[k])}`).join('، ') || 'الافتراضي')); v.updatedAt = new Date().toISOString(); }
+    else settings.intervals = out;
+    save(); sheet.close(); render();
+    notify({ type:'success', title:'تم حفظ فترات الصيانة', msg:'التنبيهات تحدّثت حسب الفترات الجديدة.', page:'vehicles', log:false });
+  };
+}
+
+/* ---------- فترة تكاليف الصيانة في اللوحة ---------- */
+let costPeriod = { mode:'month', from:'', to:'' };
+function periodRange(p){
+  const d = new Date(), y = d.getFullYear(), m = d.getMonth();
+  if (p.mode === 'month') return { from:localISO(new Date(y, m, 1)), to:localISO(new Date(y, m + 1, 0)), label:'هذا الشهر' };
+  if (p.mode === 'prev') return { from:localISO(new Date(y, m - 1, 1)), to:localISO(new Date(y, m, 0)), label:'الشهر السابق' };
+  if (p.mode === 'year') return { from:`${y}-01-01`, to:`${y}-12-31`, label:'هذه السنة' };
+  return { from:p.from || '', to:p.to || '', label: p.from || p.to ? `${p.from ? fmtDate(p.from) : '…'} ← ${p.to ? fmtDate(p.to) : '…'}` : 'كل الفترات' };
+}
+const inRange = (date, from, to) => (!from || (date || '') >= from) && (!to || (date || '') <= to);
+const costIn = (from, to, vid) => r2(reports.filter(m => (!vid || m.vehicleId === vid) && inRange(m.date, from, to)).reduce((s, m) => s + reportTotal(m), 0));
+function setCostPeriod(mode){
+  costPeriod.mode = mode;
+  if (mode === 'custom' && $id('cp-from')){ costPeriod.from = $id('cp-from').value; costPeriod.to = $id('cp-to').value; }
+  renderDash(); vib(6);
+}
+function openCostReports(){
+  const r = periodRange(costPeriod);
+  showView('mnt', true);
+  $id('mq-from').value = r.from; $id('mq-to').value = r.to; $id('mq-veh').value = ''; $id('mq-type').value = '';
+  applyMntFilter();
+}
+
+/* ---------- التقارير ---------- */
+const REPORTS = [
+  ['fleet',    'التقرير الشامل للمركبات'],
+  ['vehicle',  'تقرير صيانة مركبة محددة'],
+  ['requests', 'تقرير طلبات الصيانة'],
+  ['costs',    'تقرير تكاليف الصيانة'],
+  ['periodic', 'تقرير الصيانة الدورية'],
+  ['drivers',  'تقرير السائقين'],
+  ['expenses', 'تقرير المصروفات']
+];
+let repKind = 'fleet', repF = { veh:'', from:'', to:'', status:'', pri:'', group:'vehicle', archived:false }, lastRep = null;
+// كل تقرير يُبنى مرة واحدة كبيانات خام: {title, sub, kpis, sections:[{title, cols:[{h,t}], rows, foot}]}
+// ومنها تُولَّد المعاينة والطباعة وملف Excel، فلا تختلف الأرقام بين المخرجات
+function buildReport(kind, f){
+  const per = f.from || f.to ? `الفترة: ${f.from ? fmtDate(f.from) : 'البداية'} ← ${f.to ? fmtDate(f.to) : 'اليوم'}` : 'كل الفترات';
+  const vSet = vehicles.filter(v => (f.archived || !v.archived) && (!f.veh || v.id === f.veh)).sort((a, b) => a.no - b.no);
+  const repsIn = reports.filter(m => (!f.veh || m.vehicleId === f.veh) && inRange(m.date, f.from, f.to)).sort(byDateDesc);
+  const T = { code:{ h:'الرقم', t:'text' }, date:{ h:'التاريخ', t:'date' } };
+  const sum = (list, k) => r2(list.reduce((s, m) => s + (k === 'total' ? reportTotal(m) : (+m[k] || 0)), 0));
+  if (kind === 'fleet'){
+    const rows = vSet.map(v => { const l = lastReport(v.id); return [v.code, vName(v), v.plate || '', v.year || '', STATUS[v.status]?.label + (v.archived ? ' (مؤرشفة)' : ''), v.driver || '', v.odometer ?? '', l ? l.date : '', l ? l.type : '', costIn(f.from, f.to, v.id)]; });
+    const c = {}; vSet.forEach(v => c[v.status] = (c[v.status] || 0) + 1);
+    return { title:'التقرير الشامل للمركبات', sub:per + ' (لتكاليف الصيانة)', kpis:[['عدد المركبات', vSet.length, 'num'], ...STATUS_KEYS.map(k => [STATUS[k].label, c[k] || 0, 'num']), ['تكاليف الصيانة', r2(rows.reduce((s, r) => s + r[9], 0)), 'money']],
+      sections:[{ title:'المركبات', cols:[T.code, { h:'المركبة', t:'text' }, { h:'اللوحة', t:'ltr' }, { h:'السنة', t:'text' }, { h:'الحالة', t:'text' }, { h:'السائق المسؤول', t:'text' }, { h:'العداد (كم)', t:'num' }, { h:'آخر صيانة', t:'date' }, { h:'نوعها', t:'text' }, { h:'تكلفة الصيانة', t:'money' }],
+        rows, foot:['الإجمالي', '', '', '', '', '', '', '', '', r2(rows.reduce((s, r) => s + r[9], 0))] }] };
+  }
+  if (kind === 'vehicle'){
+    const v = vById(f.veh); if (!v) return { error:'اختر المركبة أولاً.' };
+    const list = repsIn.filter(m => m.vehicleId === v.id);
+    return { title:`تقرير صيانة ${vName(v)} — ${v.code}`, sub:per, kpis:[['عدد عمليات الصيانة', list.length, 'num'], ['قطع الغيار', sum(list, 'partsCost'), 'money'], ['أجور العمل', sum(list, 'labor'), 'money'], ['إضافية', sum(list, 'extra'), 'money'], ['الإجمالي', sum(list, 'total'), 'money']],
+      sections:[
+        { title:'بيانات المركبة', cols:[{ h:'البند', t:'text' }, { h:'القيمة', t:'text' }], rows:[['الرقم الإداري', v.code], ['المركبة', vName(v)], ['اللوحة', v.plate || ''], ['سنة الصنع', String(v.year || '')], ['السائق المسؤول', v.driver || ''], ['العداد الحالي', v.odometer != null ? num(v.odometer) + ' كم' : ''], ['الحالة', STATUS[v.status]?.label]] },
+        { title:'عمليات الصيانة', cols:[T.code, T.date, { h:'النوع', t:'text' }, { h:'الأعمال المنفذة', t:'text' }, { h:'الورشة', t:'text' }, { h:'العداد', t:'num' }, { h:'قطع الغيار', t:'money' }, { h:'أجور العمل', t:'money' }, { h:'إضافية', t:'money' }, { h:'الإجمالي', t:'money' }],
+          rows:list.map(m => [m.code, m.date, m.type, m.work, m.workshop || '', m.odometer ?? '', +m.partsCost || 0, +m.labor || 0, +m.extra || 0, reportTotal(m)]),
+          foot:['الإجمالي', '', '', '', '', '', sum(list, 'partsCost'), sum(list, 'labor'), sum(list, 'extra'), sum(list, 'total')] }] };
+  }
+  if (kind === 'requests'){
+    const list = requests.filter(r => (!f.veh || r.vehicleId === f.veh) && (!f.pri || r.priority === f.pri) && (f.status === 'open' ? isOpenReq(r) : !f.status || r.status === f.status) && inRange(r.date, f.from, f.to)).sort(byDateDesc);
+    const c = {}; list.forEach(r => c[r.status] = (c[r.status] || 0) + 1);
+    return { title:'تقرير طلبات الصيانة', sub:per, kpis:[['عدد الطلبات', list.length, 'num'], ['المفتوحة', list.filter(isOpenReq).length, 'num'], ['المكتملة', c.done || 0, 'num'], ['الملغاة', c.cancelled || 0, 'num'], ['العاجلة', list.filter(r => r.priority === 'urgent').length, 'num']],
+      sections:[
+        { title:'حسب الحالة', cols:[{ h:'الحالة', t:'text' }, { h:'العدد', t:'num' }], rows:REQ_KEYS.map(k => [REQ_STATUS[k].label, c[k] || 0]), foot:['الإجمالي', list.length] },
+        { title:'الطلبات', cols:[T.code, T.date, { h:'المركبة', t:'text' }, { h:'النوع', t:'text' }, { h:'الوصف', t:'text' }, { h:'الأولوية', t:'text' }, { h:'الحالة', t:'text' }, { h:'المُبلِّغ', t:'text' }, { h:'تاريخ الإغلاق', t:'date' }],
+          rows:list.map(r => [r.code, r.date, `${r.vSnap?.name || ''} (${r.vSnap?.code || ''})`, r.type, r.desc, PRIORITY[r.priority]?.label, REQ_STATUS[r.status]?.label, r.reporter || '', r.closedAt || '']) }] };
+  }
+  if (kind === 'costs'){
+    const rows = vSet.map(v => { const l = repsIn.filter(m => m.vehicleId === v.id); return [v.code, vName(v), l.length, sum(l, 'partsCost'), sum(l, 'labor'), sum(l, 'extra'), sum(l, 'total')]; }).filter(r => r[2] || !f.from && !f.to);
+    const tot = i => r2(rows.reduce((s, r) => s + r[i], 0));
+    return { title:'تقرير تكاليف الصيانة', sub:per, kpis:[['عمليات الصيانة', tot(2), 'num'], ['قطع الغيار', tot(3), 'money'], ['أجور العمل', tot(4), 'money'], ['إضافية', tot(5), 'money'], ['الإجمالي', tot(6), 'money']],
+      sections:[{ title:'التكاليف لكل مركبة', cols:[T.code, { h:'المركبة', t:'text' }, { h:'عدد العمليات', t:'num' }, { h:'قطع الغيار', t:'money' }, { h:'أجور العمل', t:'money' }, { h:'إضافية', t:'money' }, { h:'الإجمالي', t:'money' }],
+        rows, foot:['الإجمالي', '', tot(2), tot(3), tot(4), tot(5), tot(6)] }] };
+  }
+  if (kind === 'periodic'){
+    const ST = { overdue:'متأخرة', soon:'قريبة', ok:'في موعدها' }, rows = [];
+    vSet.filter(v => !v.archived).forEach(v => schedules(v).forEach(s => rows.push([v.code, vName(v), s.label, s.last ? s.last.date : '', s.dueDate, s.dueKm ?? '', v.odometer ?? '', ST[s.state], s.text])));
+    const rank = { 'متأخرة':0, 'قريبة':1, 'في موعدها':2 }; rows.sort((a, b) => rank[a[7]] - rank[b[7]] || (a[4] || '9').localeCompare(b[4] || '9'));
+    const filtered = f.status ? rows.filter(r => r[7] === ST[f.status]) : rows;
+    return { title:'تقرير الصيانة الدورية', sub:'حسب الفترات المحددة لكل مركبة وآخر صيانة مسجّلة', kpis:[['متأخرة', rows.filter(r => r[7] === 'متأخرة').length, 'num'], ['قريبة', rows.filter(r => r[7] === 'قريبة').length, 'num'], ['في موعدها', rows.filter(r => r[7] === 'في موعدها').length, 'num']],
+      sections:[{ title:'المواعيد', cols:[T.code, { h:'المركبة', t:'text' }, { h:'البند', t:'text' }, { h:'آخر تنفيذ', t:'date' }, { h:'الاستحقاق (تاريخ)', t:'date' }, { h:'الاستحقاق (كم)', t:'num' }, { h:'العداد الحالي', t:'num' }, { h:'الحالة', t:'text' }, { h:'التفاصيل', t:'text' }], rows:filtered }] };
+  }
+  if (kind === 'drivers'){
+    const rows = [];
+    vSet.forEach(v => (v.drivers || []).forEach(d => rows.push([d.name, d.phone || '', `${vName(v)} (${v.code})`, d.from || '', d.to || '', d.to ? 'سابق' : 'حالياً'])));
+    rows.sort((a, b) => a[0].localeCompare(b[0], 'ar') || (b[3] || '').localeCompare(a[3] || ''));
+    const names = new Set(rows.map(r => r[0])), current = rows.filter(r => !r[4]);
+    return { title:'تقرير السائقين', sub:'السائقون والمركبات المسندة إليهم مع سجل الإسناد السابق', kpis:[['عدد السائقين', names.size, 'num'], ['إسنادات حالية', current.length, 'num'], ['إسنادات سابقة', rows.length - current.length, 'num']],
+      sections:[
+        { title:'الإسناد الحالي', cols:[{ h:'السائق', t:'text' }, { h:'الهاتف', t:'ltr' }, { h:'المركبة', t:'text' }, { h:'منذ', t:'date' }], rows:current.map(r => [r[0], r[1], r[2], r[3]]) },
+        { title:'سجل الإسناد كاملاً', cols:[{ h:'السائق', t:'text' }, { h:'الهاتف', t:'ltr' }, { h:'المركبة', t:'text' }, { h:'من', t:'date' }, { h:'إلى', t:'date' }, { h:'الحالة', t:'text' }], rows }] };
+  }
+  if (kind === 'expenses'){
+    const byMonth = f.group === 'month', groups = new Map();
+    repsIn.forEach(m => { const k = byMonth ? (m.date || '').slice(0, 7) : `${m.vSnap?.name || ''} (${m.vSnap?.code || ''})`; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(m); });
+    const keys = [...groups.keys()].sort((a, b) => byMonth ? b.localeCompare(a) : a.localeCompare(b, 'ar'));
+    const AR = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+    const label = k => byMonth && k ? `${AR[+k.slice(5, 7) - 1]} ${k.slice(0, 4)}` : k;
+    const rows = [];
+    keys.forEach(k => { const l = groups.get(k);
+      l.forEach(m => rows.push([m.code, m.date, byMonth ? `${m.vSnap?.name || ''} (${m.vSnap?.code || ''})` : m.type, m.parts || '', +m.partsCost || 0, +m.labor || 0, +m.extra || 0, reportTotal(m)]));
+      rows.push({ cls:'sub', cells:[`مجموع ${label(k)}`, '', '', '', sum(l, 'partsCost'), sum(l, 'labor'), sum(l, 'extra'), sum(l, 'total')] }); });
+    return { title:'تقرير المصروفات', sub:per + (byMonth ? ' — مجمّع حسب الشهر' : ' — مجمّع حسب المركبة'), kpis:[['قطع الغيار', sum(repsIn, 'partsCost'), 'money'], ['أجور العمل', sum(repsIn, 'labor'), 'money'], ['تكاليف إضافية', sum(repsIn, 'extra'), 'money'], ['الإجمالي', sum(repsIn, 'total'), 'money']],
+      sections:[{ title:'تفاصيل المصروفات', cols:[T.code, T.date, { h: byMonth ? 'المركبة' : 'النوع', t:'text' }, { h:'قطع الغيار المستخدمة', t:'text' }, { h:'تكلفة القطع', t:'money' }, { h:'أجور العمل', t:'money' }, { h:'إضافية', t:'money' }, { h:'الإجمالي', t:'money' }],
+        rows, foot:['الإجمالي العام', '', '', '', sum(repsIn, 'partsCost'), sum(repsIn, 'labor'), sum(repsIn, 'extra'), sum(repsIn, 'total')] }] };
+  }
+  return { error:'تقرير غير معروف' };
+}
+function fmtCell(v, t){
+  if (v === '' || v == null) return '—';
+  if (t === 'money') return money(v);
+  if (t === 'num') return num(v);
+  if (t === 'date') return fmtDate(v);
+  if (t === 'ltr') return ltr(String(v));
+  return esc(v);
+}
+function reportHTML(rep, print){
+  const kpis = `<div class="${print ? 'kpis' : 'mk-kpis'}">${rep.kpis.map(([l, v, t]) => print ? `<div class="kpi"><div class="kv">${fmtCell(v, t)}</div><div class="kl">${esc(l)}</div></div>` : `<div class="mk-card mk-kpi"><small>${esc(l)}</small><b class="num">${fmtCell(v, t)}</b></div>`).join('')}</div>`;
+  const secs = rep.sections.map(s => {
+    const row = (cells, cls) => `<tr${cls ? ` class="${cls}"` : ''}>${cells.map((c, i) => `<td${s.cols[i] && ['money', 'num'].includes(s.cols[i].t) ? ' class="num"' : ''}>${cls && typeof c === 'string' ? esc(c) || '' : fmtCell(c, s.cols[i] && s.cols[i].t)}</td>`).join('')}</tr>`;
+    const body = s.rows.length ? s.rows.map(r => Array.isArray(r) ? row(r) : row(r.cells, r.cls)).join('') : `<tr><td colspan="${s.cols.length}" class="${print ? '' : 'mk-empty'}" style="text-align:center">لا توجد بيانات</td></tr>`;
+    return `${print ? `<h2>${esc(s.title)}</h2>` : `<div class="mk-title" style="margin-top:14px"><span>${esc(s.title)}</span><span class="pill info num">${num(s.rows.filter(Array.isArray).length)}</span></div>`}
+      ${print ? '' : '<div class="mk-card mk-table-card"><div class="mk-scroll">'}<table class="${print ? '' : 'mk-table vh-table vh-rep-table'}"><thead><tr>${s.cols.map(c => `<th>${esc(c.h)}</th>`).join('')}</tr></thead><tbody>${body}${s.foot && s.rows.length ? row(s.foot, 'tot') : ''}</tbody></table>${print ? '' : '</div></div>'}`;
+  }).join('');
+  return kpis + secs;
+}
+function readRepForm(){
+  repKind = $id('rp-kind').value;
+  repF = { veh:$id('rp-veh').value, from:$id('rp-from').value, to:$id('rp-to').value, status:$id('rp-status').value, pri:$id('rp-pri').value, group:$id('rp-group').value, archived:$id('rp-arch').checked };
+}
+function syncRepForm(){
+  const k = $id('rp-kind').value, show = (id, on) => { $id(id).closest('.mk-field').hidden = !on; };
+  show('rp-from', !['periodic', 'drivers'].includes(k)); show('rp-to', !['periodic', 'drivers'].includes(k));
+  show('rp-pri', k === 'requests'); show('rp-group', k === 'expenses'); show('rp-status', k === 'requests' || k === 'periodic');
+  $id('rp-arch').closest('.vh-check').hidden = !['fleet', 'costs', 'drivers'].includes(k);
+  const st = $id('rp-status'), cur = st.value;
+  st.innerHTML = k === 'periodic' ? '<option value="">كل الحالات</option><option value="overdue">متأخرة</option><option value="soon">قريبة</option><option value="ok">في موعدها</option>'
+    : '<option value="">كل الحالات</option><option value="open">المفتوحة</option>' + REQ_KEYS.map(s => `<option value="${s}">${REQ_STATUS[s].label}</option>`).join('');
+  if ([...st.options].some(o => o.value === cur)) st.value = cur;
+  $id('rp-veh-l').innerHTML = k === 'vehicle' ? 'المركبة <i>*</i>' : 'المركبة';
+}
+function runReport(){
+  readRepForm();
+  if (repKind === 'vehicle' && !repF.veh) return markInvalid($id('rp-veh'), 'اختر المركبة', 'تقرير صيانة مركبة محددة يحتاج مركبة.');
+  if (repF.from && repF.to && repF.from > repF.to) return markInvalid($id('rp-to'), 'الفترة غير صحيحة', '«إلى» لازم يكون بعد «من».');
+  const rep = buildReport(repKind, repF);
+  if (rep.error) return notify({ type:'error', title:'تعذّر إنشاء التقرير', msg:rep.error, log:false });
+  lastRep = rep;
+  $id('rp-out').innerHTML = `<div class="vh-rep-head"><div><h3>${esc(rep.title)}</h3><p class="muted">${esc(rep.sub)} — أُنشئ ${fmtDateTime(new Date().toISOString())}</p></div>
+    <div class="row"><button class="btn btn-sm" onclick="VH.exportReportExcel()">Excel</button><button class="btn btn-sm btn-primary" onclick="VH.printCurrentReport()">طباعة / PDF</button></div></div>${reportHTML(rep, false)}`;
+  vib(8);
+}
+function printCurrentReport(){
+  if (!lastRep) runReport(); if (!lastRep) return;
+  const body = `<h1>${esc(lastRep.title)}</h1><div class="sub">${esc(lastRep.sub)} — تاريخ الإنشاء ${fmtDateTime(new Date().toISOString())}</div>${reportHTML(lastRep, true)}
+    <div class="sig"><div class="s">أعدّه${settings.lastBy ? ': ' + esc(settings.lastBy) : ''}</div><div class="s">مسؤول الحركة</div><div class="s">اعتماد المدير</div></div>`;
+  if (openPrintWindow(lastRep.title, body)) notify({ type:'info', title:'تم تجهيز التقرير للطباعة', msg:'اختر «حفظ بصيغة PDF» من نافذة الطباعة لو بدك ملف.', log:false });
+}
+function exportReportExcel(){
+  if (!lastRep) runReport(); if (!lastRep) return;
+  if (typeof XLSX === 'undefined') return notify({ type:'error', title:'مكتبة Excel غير محمّلة', msg:'أعد تحميل التطبيق ثم حاول مجدداً.' });
+  try {
+    const wb = XLSX.utils.book_new(), stamp = new Date();
+    const sum = [[lastRep.title], [lastRep.sub], ['تاريخ الإنشاء', fmtDateTime(stamp.toISOString())], [], ['البند', 'القيمة'], ...lastRep.kpis.map(([l, v]) => [l, v])];
+    const ws0 = XLSX.utils.aoa_to_sheet(sum); ws0['!cols'] = [{ wch:28 }, { wch:22 }];
+    XLSX.utils.book_append_sheet(wb, ws0, 'الملخص');
+    const used = new Set(['الملخص']);
+    lastRep.sections.forEach(s => {
+      const aoa = [s.cols.map(c => c.h), ...s.rows.map(r => (Array.isArray(r) ? r : r.cells).map((c, i) => s.cols[i] && s.cols[i].t === 'date' && c ? c : c))];
+      if (s.foot && s.rows.length) aoa.push(s.foot);
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws['!cols'] = s.cols.map(c => ({ wch: c.t === 'text' ? 26 : 14 }));
+      let name = s.title.slice(0, 28), i = 2; while (used.has(name)) name = s.title.slice(0, 25) + ' ' + i++;
+      used.add(name); XLSX.utils.book_append_sheet(wb, ws, name);
+    });
+    const fname = `${lastRep.title.replace(/[\\/:*?"<>|—]/g, '').trim().replace(/\s+/g, '_')}_${todayISO()}.xlsx`;
+    const buf = XLSX.write(wb, { bookType:'xlsx', type:'array' });
+    const url = URL.createObjectURL(new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    const a = document.createElement('a'); a.href = url; a.download = fname; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    notify({ type:'success', title:'تم تصدير التقرير إلى Excel', msg:`${fname} — تجده في مجلد التنزيلات.`, page:'vehicles' });
+  } catch(e){ notify({ type:'error', title:'تعذّر تصدير Excel', msg:'السبب: ' + e.message }); }
+}
+function renderReportsView(){
+  const sel = $id('rp-veh'), cur = sel.value;
+  sel.innerHTML = '<option value="">كل المركبات</option>' + vehOptions(cur, true); sel.value = cur;
+  syncRepForm();
+}
+
 /* ---------- الطباعة ---------- */
 function openPrintWindow(title, body){
   const w = window.open('', '_blank');
@@ -1000,6 +1318,7 @@ function openPrintWindow(title, body){
   table{width:100%;border-collapse:collapse;font-size:.82rem}thead{display:table-header-group}tr{page-break-inside:avoid}
   th{background:#1B3B2F;color:#fff;padding:7px 9px;text-align:right;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   td{border-bottom:1px solid #ddd;padding:6px 9px;vertical-align:top}
+  tr.tot td{font-weight:bold;background:#e3efe8;-webkit-print-color-adjust:exact;print-color-adjust:exact}tr.sub td{font-weight:bold;background:#f0f6f2;-webkit-print-color-adjust:exact;print-color-adjust:exact}bdi{unicode-bidi:isolate}
   .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px 18px}.grid small{display:block;color:#666;font-size:.72rem}.grid b{font-size:.9rem}
   .kpis{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:8px}.kpi{flex:1;min-width:105px;padding:10px;border-radius:7px;text-align:center;border:1px solid #ccc}
   .kv{font-size:1.1rem;font-weight:bold}.kl{font-size:.67rem;color:#555}
@@ -1050,6 +1369,10 @@ function alerts(){
   if (stopped.length) res.push({ severity:'high', title: stopped.length === 1 ? 'مركبة متوقفة عن العمل' : `${num(stopped.length)} مركبات متوقفة عن العمل`, subtitle:list(stopped), onOpen:() => filterStatus('stopped') });
   const urgent = requests.filter(r => isOpenReq(r) && r.priority === 'urgent');
   if (urgent.length) res.push({ severity:'high', title: urgent.length === 1 ? 'طلب صيانة عاجل مفتوح' : `${num(urgent.length)} طلبات صيانة عاجلة مفتوحة`, subtitle:urgent.slice(0, 3).map(r => `${r.code} — ${r.vSnap?.name || ''}`).join('، '), onOpen:() => filterRequests({ status:'open', pri:'urgent' }) });
+  const due = vehicleAlerts().filter(a => a.kind === 'due'), over = due.filter(a => a.severity === 'high'), soon = due.filter(a => a.severity === 'mid');
+  const vl = arr => [...new Set(arr.map(a => a.vid))].slice(0, 3).map(id => vName(vById(id))).join('، ');
+  if (over.length) res.push({ severity:'high', title:`صيانة متأخرة لـ${num(new Set(over.map(a => a.vid)).size)} مركبة`, subtitle:vl(over), onOpen:() => showDueAlerts() });
+  if (soon.length) res.push({ severity:'mid', title:`صيانة يقترب موعدها لـ${num(new Set(soon.map(a => a.vid)).size)} مركبة`, subtitle:vl(soon), onOpen:() => showDueAlerts() });
   if (needs.length) res.push({ severity:'mid', title: needs.length === 1 ? 'مركبة تحتاج إلى صيانة' : `${num(needs.length)} مركبات تحتاج إلى صيانة`, subtitle:list(needs), onOpen:() => filterStatus('needs') });
   return res;
 }
@@ -1069,6 +1392,7 @@ return {
   setStatus, toggleArchive, addNote, printVehicle, backupCollect, backupApply,
   openRequestForm, openReqStatus, openRequest, applyReqFilter, filterRequests, openReportForm, openReport, printReport,
   applyMntFilter, toggleMntSort, setFileSort, openTypes, openAttKey,
+  openIntervals, setCostPeriod, openCostReports, showDueAlerts, syncRepForm, runReport, printCurrentReport, exportReportExcel, buildReport, schedules: id => schedules(vById(id)), vehicleAlerts,
   _data:{ get vehicles(){ return vehicles; }, get requests(){ return requests; }, get reports(){ return reports; }, get settings(){ return settings; } }
 };
 })();
