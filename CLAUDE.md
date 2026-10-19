@@ -1,6 +1,6 @@
 # النظام الإداري الموحّد — تعليمات العمل
 
-تطبيق واحد أوفلاين قابل للتثبيت (PWA) يجمع ٧ وحدات إدارية. الردود باللهجة الشامية — **كل نص يراه المستخدم**، حتى الجمل القصيرة بين الأدوات.
+تطبيق واحد أوفلاين قابل للتثبيت (PWA) يجمع ٨ وحدات إدارية. الردود باللهجة الشامية — **كل نص يراه المستخدم**، حتى الجمل القصيرة بين الأدوات.
 
 ## قواعد لا تُكسر
 
@@ -27,7 +27,7 @@ src/index.template.html   الهيكل، فيه /*#STYLES#*/ و<!--#SCRIPTS#-->
 src/boot.js               سكربت الثيم المبكر داخل <head>
 src/styles/00-shell.css   متغيرات الهيكل + عُدّة mk- المشتركة
 src/styles/<page>.css     CSS كل وحدة، محصور بـ#page-<page>
-src/modules/<page>.js     wared, payroll, equipment, fuel, inventory, cleaning, custody
+src/modules/<page>.js     wared, payroll, equipment, fuel, inventory, cleaning, custody, vehicles
 src/shell.js              التنقل، الإشعارات، النسخ الاحتياطي، محرك استيراد Excel، مولّد Word، window.App
 src/manifest.json         ترتيب الإدراج
 unified-admin/lib/        xlsx.mini.js و chart.mini.js (بدائل محلية مصغّرة)
@@ -47,8 +47,11 @@ build.py                  التجميع + التصغير + إنتاج المخ�
 | مخزون الطعام | `INV` | `inv_a`, `inv_w` | `fsdb_inv` |
 | توزيع المنظفات | `CL` | `clean_a`, `clean_w` | `fsdb_clean` |
 | إدارة العهد | `CU` | `cust_a`, `cust_i`, `cust_r` | `fsdb_cust` |
+| إدارة المركبات | `VH` | `veh_v`, `veh_q`, `veh_m`, `veh_s` | `fsdb_veh_atts` (صور ومرفقات) |
 
 EQ و INV و CL بنية واحدة (`additions` / `withdrawals` / `computeStock` / `LOW`). عند استنساخ وحدة أعد تسمية: الكائن، المعرّفات، **`for="eq-"`** في الليبلات، `list="…-dl"`، `#page-<name>` في CSS، مفاتيح التخزين، `FS_DB_NAME`، `page:'…'`، `NotificationRegistry`، `MODULE_INITS`، `PAGE_RENDERERS`. أصناف `.eq-*` تبقى لأنها محصورة بمعرّف الصفحة.
+
+VH مستقلة: كل تقرير صيانة يحفظ نسخة من السائق واللوحة وقته، و`veh_s` إعدادات لا تُعدّ سجلات (`count` في `MODULE_META`). أيقونتها مسطّحة من `FLAT_ICONS` في `shell.js`. الوحدات معرّفة بـ`const` فلا تظهر على `window` — في `PAGE_RENDERERS` افحص بـ`typeof`.
 
 CU فيها ثلاث مصفوفات: `additions` و`issues` و`returns`، و`totalOut = Σissues − Σreturns`.
 

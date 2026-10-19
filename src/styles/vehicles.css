@@ -1,0 +1,80 @@
+/* ================= وحدة: إدارة المركبات (#page-vehicles) ================= */
+#page-vehicles .vh-kpis{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+#page-vehicles .vh-kpis .mk-kpi{cursor:pointer;transition:transform .15s,box-shadow .2s}
+#page-vehicles .vh-kpis .mk-kpi:active{transform:scale(.97)}
+#page-vehicles .mk-head .tile .i3d-flat{--s:44px}
+
+/* القائمة */
+#page-vehicles .vh-toolbar>.mk-inp[type=search]{flex:3 1 240px}
+#page-vehicles .vh-check{display:flex;align-items:center;gap:7px;font-size:13.5px;color:var(--muted);height:42px;padding:0 6px;white-space:nowrap}
+#page-vehicles .vh-check input{width:17px;height:17px;accent-color:var(--accent)}
+#page-vehicles .vh-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+#page-vehicles .vh-grid>.vh-empty{grid-column:1/-1}
+#page-vehicles .vh-empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:30px 16px}
+#page-vehicles .vh-empty b{font-family:var(--f-display);font-size:16px}
+#page-vehicles .vh-empty p{font-size:13.5px;color:var(--muted);max-width:360px}
+#page-vehicles .vh-empty .btn{margin-top:6px}
+#page-vehicles .vh-card{display:flex;gap:14px;padding:12px;cursor:pointer;transition:transform .15s,box-shadow .2s,border-color .2s;min-width:0}
+#page-vehicles .vh-card:focus-visible{outline:3px solid var(--accent-soft);border-color:var(--accent)}
+#page-vehicles .vh-card.archived{opacity:.72}
+#page-vehicles .vh-card.row-new{animation:eqFlash 1.6s ease-out}
+@media (hover:hover) and (pointer:fine){#page-vehicles .vh-card:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(0,0,0,.08);border-color:var(--accent)}}
+#page-vehicles .vh-card-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+#page-vehicles .vh-card-top{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+#page-vehicles .vh-code{font-weight:800;font-size:12.5px;color:var(--accent-text);background:var(--accent-soft);padding:2px 9px;border-radius:8px;letter-spacing:.3px}
+#page-vehicles .vh-card h3{font-family:var(--f-display);font-size:16.5px;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#page-vehicles .vh-meta{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px;color:var(--muted)}
+#page-vehicles .vh-meta b{color:var(--text);font-weight:600}
+
+/* الصورة */
+#page-vehicles .vh-photo,.vh-form-photo .vh-photo{position:relative;width:84px;height:84px;border-radius:14px;overflow:hidden;flex:none;display:grid;place-items:center;background:var(--accent-soft)}
+#page-vehicles .vh-photo img,.vh-form-photo .vh-photo img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#page-vehicles .vh-photo:not(.none) .i3d-flat,.vh-form-photo .vh-photo:not(.none) .i3d-flat{display:none}
+#page-vehicles .vh-photo .i3d-flat .f,.vh-form-photo .vh-photo .i3d-flat .f{fill:var(--card)}
+#page-vehicles .vh-photo.big,.vh-form-photo .vh-photo.big{width:132px;height:132px;border-radius:18px}
+.vh-form-photo{display:flex;align-items:center;gap:14px;margin-bottom:14px;flex-wrap:wrap}
+.vh-photo-btns{display:flex;gap:8px;flex-wrap:wrap}
+
+/* لوحة التحكم */
+#page-vehicles .vh-mini{display:flex;flex-direction:column;gap:4px}
+#page-vehicles .vh-mini-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;text-align:start;flex-wrap:wrap}
+#page-vehicles .vh-mini-row:hover{background:var(--card-2)}
+#page-vehicles .vh-mini-row b{flex:1;min-width:120px}
+
+/* ملف المركبة */
+#page-vehicles .vh-file-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+#page-vehicles .vh-file-actions{display:flex;gap:8px;flex-wrap:wrap}
+#page-vehicles .vh-hero{display:flex;gap:18px;padding:16px;margin-bottom:14px;flex-wrap:wrap}
+#page-vehicles .vh-hero-body{flex:1;min-width:240px;display:flex;flex-direction:column;gap:8px}
+#page-vehicles .vh-hero h2{font-family:var(--f-display);font-size:22px;font-weight:800;line-height:1.3}
+#page-vehicles .vh-hero-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 18px;margin-top:4px}
+#page-vehicles .vh-hero-grid small,#page-vehicles .vh-detail small{display:block;font-size:12.5px;color:var(--muted)}
+#page-vehicles .vh-hero-grid b{font-size:15px}
+#page-vehicles .vh-hero-grid .muted,#page-vehicles .vh-tel{display:block;font-size:12.5px}
+#page-vehicles .vh-tel{color:var(--accent-text);font-weight:600}
+#page-vehicles .vh-status-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px;padding-top:10px;border-top:1px dashed var(--card-border)}
+#page-vehicles .vh-status-row .muted{font-size:13px;margin-inline-end:4px}
+#page-vehicles .vh-status-row .btn[disabled]{opacity:1;cursor:default}
+#page-vehicles .vh-detail{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+#page-vehicles .vh-notes{margin-top:14px;padding:12px 14px;border-radius:12px;background:var(--card-2)}
+#page-vehicles .vh-notes small{color:var(--muted);font-size:12.5px}
+#page-vehicles .vh-notes p{white-space:pre-wrap;font-size:14px}
+
+/* الخط الزمني */
+#page-vehicles .vh-timeline{list-style:none;padding:0;margin:0;position:relative}
+#page-vehicles .vh-timeline li{position:relative;padding:0 22px 16px 0;border-inline-start:0}
+#page-vehicles .vh-timeline li::before{content:"";position:absolute;inset-inline-start:0;top:6px;width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+#page-vehicles .vh-timeline li::after{content:"";position:absolute;inset-inline-start:4.5px;top:18px;bottom:0;width:1px;background:var(--card-border)}
+#page-vehicles .vh-timeline li:last-child::after{display:none}
+#page-vehicles .vh-timeline time{font-size:12.5px;color:var(--muted)}
+#page-vehicles .vh-timeline p{font-size:14px;margin:2px 0}
+#page-vehicles .vh-timeline small{font-size:12px;color:var(--muted)}
+
+/* الجوال */
+html[data-layout="mobile"] #page-vehicles .vh-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+html[data-layout="mobile"] #page-vehicles .vh-grid{grid-template-columns:minmax(0,1fr)}
+html[data-layout="mobile"] #page-vehicles .vh-photo{width:72px;height:72px}
+html[data-layout="mobile"] #page-vehicles .vh-hero .vh-photo.big{width:100%;height:170px}
+html[data-layout="mobile"] #page-vehicles .vh-file-actions{width:100%}
+html[data-layout="mobile"] #page-vehicles .vh-file-actions .btn{flex:1}
+html[data-layout="mobile"] #page-vehicles .vh-hero-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
