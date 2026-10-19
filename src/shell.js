@@ -2,11 +2,14 @@
 /* =====================================================================
    النظام الإداري الموحّد — الهيكل العام
    ===================================================================== */
-const APP_VERSION = '2.19.0';
+const APP_VERSION = '2.19.1';
 const BUILD_DATE  = '2026-10-19';
 const APP_ID      = 'unified-admin-system';
 
 const CHANGELOG = [
+  { v:'2.19.1', date:'2026-10-19', items:[
+    'إصلاح: فتح أي وحدة صار يحدّث عرضها فعلاً — الرواتب والوارد والوقود تعرض آخر البيانات، ومخطط المخزون يُعاد رسمه عند الدخول'
+  ]},
   { v:'2.19.0', date:'2026-10-19', items:[
     'إدارة المركبات: متابعة الصيانة الدورية بالتاريخ والكيلومترات — تغيير الزيت والصيانة الدورية والمواعيد المحددة في التقارير',
     'فترات صيانة لكل مركبة على حدة (أو الافتراضية: الزيت ٥٠٠٠ كم / ٩٠ يوماً، الدورية ١٠٠٠٠ كم / ١٨٠ يوماً)',
@@ -619,13 +622,14 @@ function renderHome(){
   updateBadges(alerts);
 }
 PAGE_RENDERERS.home = renderHome;
-PAGE_RENDERERS.equipment = () => { if (window.EQ) EQ.onShow(); };
-PAGE_RENDERERS.payroll = () => { if (window.PR) PR.onShow(); };
-PAGE_RENDERERS.wared = () => { if (window.WR) WR.onShow(); };
-PAGE_RENDERERS.fuel = () => { if (window.FU) FU.onShow(); };
-PAGE_RENDERERS.inventory = () => { if (window.INV) INV.onShow(); };
-PAGE_RENDERERS.cleaning = () => { if (window.CL) CL.onShow(); };
-PAGE_RENDERERS.custody = () => { if (window.CU) CU.onShow(); };
+// الوحدات معرّفة بـ const فلا تظهر على window — الفحص بـ typeof حتى تُستدعى onShow فعلاً
+PAGE_RENDERERS.equipment = () => { if (typeof EQ !== 'undefined') EQ.onShow(); };
+PAGE_RENDERERS.payroll = () => { if (typeof PR !== 'undefined') PR.onShow(); };
+PAGE_RENDERERS.wared = () => { if (typeof WR !== 'undefined') WR.onShow(); };
+PAGE_RENDERERS.fuel = () => { if (typeof FU !== 'undefined') FU.onShow(); };
+PAGE_RENDERERS.inventory = () => { if (typeof INV !== 'undefined') INV.onShow(); };
+PAGE_RENDERERS.cleaning = () => { if (typeof CL !== 'undefined') CL.onShow(); };
+PAGE_RENDERERS.custody = () => { if (typeof CU !== 'undefined') CU.onShow(); };
 PAGE_RENDERERS.vehicles = () => { if (typeof VH !== 'undefined') VH.onShow(); };
 
 /* صفحة وحدة لم تُدمج بعد */
