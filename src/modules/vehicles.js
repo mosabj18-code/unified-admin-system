@@ -16,12 +16,35 @@ const STATUS = {
   stopped:{ label:'متوقفة عن العمل',  pill:'high' }
 };
 const STATUS_KEYS = Object.keys(STATUS);
-const DEFAULT_SETTINGS = { lastBy:'' };
+// حالات طلب الصيانة — المكتملة والملغاة «مغلقة»، والباقي مفتوح
+const REQ_STATUS = {
+  new:      { label:'بلاغ جديد',          pill:'info' },
+  approval: { label:'بانتظار الموافقة',   pill:'mid'  },
+  pending:  { label:'بانتظار التنفيذ',    pill:'mid'  },
+  progress: { label:'قيد الصيانة',        pill:'info' },
+  done:     { label:'مكتملة',             pill:'ok'   },
+  cancelled:{ label:'ملغاة',              pill:''     }
+};
+const REQ_KEYS = Object.keys(REQ_STATUS);
+const isOpenReq = r => r.status !== 'done' && r.status !== 'cancelled';
+const PRIORITY = {
+  low:    { label:'منخفضة', pill:''     },
+  normal: { label:'عادية',  pill:'info' },
+  high:   { label:'مرتفعة', pill:'mid'  },
+  urgent: { label:'عاجلة',  pill:'high' }
+};
+const PRIORITY_KEYS = Object.keys(PRIORITY);
+// أنواع الصيانة قابلة للتوسع من «إدارة الأنواع» (تُحفظ في veh_s)
+const DEFAULT_TYPES = ['تغيير زيت المحرك','تغيير الفلاتر','إصلاح المحرك','إصلاح نظام الفرامل','تغيير الإطارات','تركيب زجاج',
+  'إصلاح نظام الكهرباء','صيانة المكيف','صيانة دورية','إصلاح أعطال ميكانيكية','إصلاح أعطال كهربائية','صيانة أخرى'];
+const DEFAULT_SETTINGS = { lastBy:'', types:DEFAULT_TYPES.slice() };
 
 /* ---------- الحالة ---------- */
 let vehicles = [], requests = [], reports = [], settings = { ...DEFAULT_SETTINGS };
 let view = 'dash', fileId = null, fileTab = 'info';
 let fq = '', fStatus = '', showArchived = false, flashId = null;
+let rq = { q:'', veh:'', status:'open', pri:'', from:'', to:'' };   // فلاتر طلبات الصيانة
+let mq = { veh:'', type:'', from:'', to:'', sort:'desc' };           // فلاتر سجل الصيانة
 
 /* ---------- أدوات ---------- */
 const $id = id => document.getElementById('vh-' + id);
@@ -30,6 +53,10 @@ const confirmD = o => window.App ? App.confirm(o) : Promise.resolve(window.confi
 const vib = ms => window.App && App.vibrate(ms);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const num = v => Number(Math.round((Number(v) || 0) * 100) / 100).toLocaleString('ar-EG', { maximumFractionDigits:2 });
+const CUR = '₪';
+const money = v => num(v) + ' ' + CUR;
+const r2 = v => Math.round((Number(v) || 0) * 100) / 100;
+const moneyVal = v => { const n = parseFloat(toEn(v).replace(/[,٬\s]/g, '')); return isNaN(n) ? null : n; };
 function localISO(d){ return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
 const todayISO = () => localISO(new Date());
 function fmtDate(iso){ if (!iso) return '—'; return new Intl.DateTimeFormat('ar-EG', { year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date(iso.slice(0, 10) + 'T00:00:00')); }
@@ -54,6 +81,8 @@ const ltr = t => t ? `<bdi dir="ltr">${esc(t)}</bdi>` : '—';
 /* ---------- الترقيم: أكبر رقم موجود + 1 ---------- */
 const nextNo = list => list.reduce((m, r) => Math.max(m, +r.no || 0), 0) + 1;
 const vCode = n => 'VEH-' + String(n).padStart(3, '0');
+const qCode = n => 'REQ-' + String(n).padStart(3, '0');
+const mCode = n => 'MNT-' + String(n).padStart(3, '0');
 
 /* ---------- الحفظ والتحميل ---------- */
 function save(){
@@ -77,6 +106,9 @@ function load(){
   if (!Array.isArray(requests)) requests = [];
   if (!Array.isArray(reports)) reports = [];
   vehicles.forEach(v => { v.log = v.log || []; v.drivers = v.drivers || []; });
+  if (!Array.isArray(settings.types) || !settings.types.length) settings.types = DEFAULT_TYPES.slice();
+  requests.forEach(r => { r.history = r.history || []; r.atts = r.atts || []; });
+  reports.forEach(r => { r.edits = r.edits || []; r.atts = r.atts || []; });
 }
 
 /* ---------- الصور والمرفقات (IndexedDB) ---------- */
@@ -167,21 +199,24 @@ function counts(){
 }
 
 /* ---------- الواجهة ---------- */
-const VIEWS = [['dash', 'لوحة التحكم', 'chart'], ['list', 'المركبات', 'vehicles']];
+const VIEWS = [['dash', 'لوحة التحكم', 'chart'], ['list', 'المركبات', 'vehicles'], ['req', 'طلبات الصيانة', 'bell'], ['mnt', 'سجل الصيانة', 'checklist']];
 function buildUI(){
   const root = document.getElementById('page-vehicles');
   root.removeAttribute('data-placeholder');
   root.innerHTML = `
   <div class="mk-head" style="--tint:var(--accent-soft)">
     <div class="tile">${carIco()}</div>
-    <div class="grow"><h2>إدارة المركبات</h2><p>ملف لكل مركبة: بياناتها والسائق المسؤول وحالتها وسجل متابعتها</p></div>
+    <div class="grow"><h2>إدارة المركبات</h2><p>ملف لكل مركبة: بياناتها والسائق المسؤول وطلبات صيانتها وتقاريرها وتكاليفها</p></div>
     <div class="mk-tools">
       <button class="btn btn-primary" onclick="VH.openVehicleForm()">مركبة جديدة</button>
+      <button class="btn" onclick="VH.openRequestForm()">طلب صيانة</button>
+      <button class="btn" onclick="VH.openReportForm()">صيانة منفذة</button>
     </div>
   </div>
-  <div class="mk-tabs" role="tablist" id="vh-tabs">${VIEWS.map(([v, l, i]) => `<button class="mk-tab${v === 'dash' ? ' active' : ''}" id="vh-tab-${v}" role="tab" onclick="VH.showView('${v}')">${v === 'list' ? carIco(24) : ico(i)}${l}</button>`).join('')}</div>
+  <div class="mk-tabs" role="tablist" id="vh-tabs">${VIEWS.map(([v, l, i]) => `<button class="mk-tab${v === 'dash' ? ' active' : ''}" id="vh-tab-${v}" role="tab" onclick="VH.showView('${v}')">${v === 'list' ? carIco(24) : ico(i)}${l}${v === 'req' ? '<span class="badge num" id="vh-req-badge"></span>' : ''}</button>`).join('')}</div>
 
   <section class="mk-view active" id="vh-view-dash">
+    <div id="vh-dash-urgent"></div>
     <div class="mk-kpis vh-kpis" id="vh-kpis"></div>
     <div class="mk-card mk-pad mk-section" id="vh-dash-recent"></div>
   </section>
@@ -195,6 +230,37 @@ function buildUI(){
     <div class="vh-grid" id="vh-grid"></div>
   </section>
 
+  <section class="mk-view" id="vh-view-req">
+    <div class="mk-toolbar vh-toolbar">
+      <input class="mk-inp" type="search" id="vh-rq-q" placeholder="ابحث برقم الطلب أو الوصف أو المُبلِّغ…" oninput="VH.applyReqFilter()">
+      <select class="mk-inp" id="vh-rq-veh" onchange="VH.applyReqFilter()"></select>
+      <select class="mk-inp" id="vh-rq-status" onchange="VH.applyReqFilter()"><option value="open">المفتوحة</option><option value="">كل الحالات</option>${REQ_KEYS.map(k => `<option value="${k}">${REQ_STATUS[k].label}</option>`).join('')}</select>
+      <select class="mk-inp" id="vh-rq-pri" onchange="VH.applyReqFilter()"><option value="">كل الأولويات</option>${PRIORITY_KEYS.map(k => `<option value="${k}">${PRIORITY[k].label}</option>`).join('')}</select>
+      <input class="mk-inp" type="date" id="vh-rq-from" title="من تاريخ" onchange="VH.applyReqFilter()">
+      <input class="mk-inp" type="date" id="vh-rq-to" title="إلى تاريخ" onchange="VH.applyReqFilter()">
+    </div>
+    <div class="mk-card mk-table-card">
+      <div class="mk-table-head"><h3>طلبات الصيانة <span class="pill info num" id="vh-rq-count">0</span></h3>
+        <div class="row"><button class="btn btn-sm" onclick="VH.openTypes()">أنواع الصيانة</button><button class="btn btn-sm btn-primary" onclick="VH.openRequestForm()">طلب جديد</button></div></div>
+      <div class="mk-scroll"><table class="mk-table vh-table"><thead><tr><th>الرقم</th><th>التاريخ</th><th>المركبة</th><th>النوع</th><th>الأولوية</th><th>الحالة</th><th></th></tr></thead><tbody id="vh-rq-body"></tbody></table></div>
+    </div>
+  </section>
+
+  <section class="mk-view" id="vh-view-mnt">
+    <div class="mk-toolbar vh-toolbar">
+      <select class="mk-inp" id="vh-mq-veh" onchange="VH.applyMntFilter()"></select>
+      <select class="mk-inp" id="vh-mq-type" onchange="VH.applyMntFilter()"></select>
+      <input class="mk-inp" type="date" id="vh-mq-from" title="من تاريخ" onchange="VH.applyMntFilter()">
+      <input class="mk-inp" type="date" id="vh-mq-to" title="إلى تاريخ" onchange="VH.applyMntFilter()">
+      <button class="btn btn-sm" id="vh-mq-sort" onclick="VH.toggleMntSort()">الأحدث أولاً ↓</button>
+    </div>
+    <div class="mk-card mk-table-card">
+      <div class="mk-table-head"><h3>سجل الصيانة المنفذة <span class="pill info num" id="vh-mq-count">0</span></h3>
+        <div class="row"><span class="vh-sum">الإجمالي: <b class="num" id="vh-mq-total">0</b></span><button class="btn btn-sm btn-primary" onclick="VH.openReportForm()">تسجيل صيانة</button></div></div>
+      <div class="mk-scroll"><table class="mk-table vh-table"><thead><tr><th>التقرير</th><th>التاريخ</th><th>المركبة</th><th>النوع</th><th>الورشة</th><th>العداد</th><th>الإجمالي</th><th></th></tr></thead><tbody id="vh-mq-body"></tbody></table></div>
+    </div>
+  </section>
+
   <section class="mk-view" id="vh-view-file"></section>`;
 }
 
@@ -202,7 +268,7 @@ function showView(v, silent){
   if (v !== 'file') fileId = null;
   view = v;
   VIEWS.forEach(([k]) => { const t = $id('tab-' + k); t.classList.toggle('active', k === v); t.setAttribute('aria-selected', k === v); });
-  ['dash', 'list', 'file'].forEach(k => $id('view-' + k).classList.toggle('active', k === v));
+  ['dash', 'list', 'req', 'mnt', 'file'].forEach(k => $id('view-' + k).classList.toggle('active', k === v));
   $id('tabs').hidden = v === 'file';
   render();
   if (silent !== true) vib(8);
@@ -210,7 +276,11 @@ function showView(v, silent){
 function render(){
   if (view === 'dash') renderDash();
   else if (view === 'list') renderList();
+  else if (view === 'req') renderReqs();
+  else if (view === 'mnt') renderMnts();
   else if (view === 'file') renderFile();
+  const open = requests.filter(isOpenReq), urgent = open.filter(r => r.priority === 'urgent').length, b = $id('req-badge');
+  if (b){ b.textContent = open.length ? num(open.length) : ''; b.classList.toggle('show', !!open.length); b.classList.toggle('mid', !urgent); }
 }
 
 /* ---------- لوحة التحكم ---------- */
@@ -222,7 +292,10 @@ function renderDash(){
     card('ready', 'المركبات الجاهزة', c.ready, 'good', "VH.filterStatus('ready')") +
     card('needs', 'تحتاج إلى صيانة', c.needs, 'warn', "VH.filterStatus('needs')") +
     card('under', 'تحت الصيانة', c.under, '', "VH.filterStatus('under')") +
-    card('stopped', 'المركبات المتوقفة', c.stopped, 'bad', "VH.filterStatus('stopped')");
+    card('stopped', 'المركبات المتوقفة', c.stopped, 'bad', "VH.filterStatus('stopped')") +
+    card('open', 'طلبات الصيانة المفتوحة', requests.filter(isOpenReq).length, 'warn', "VH.filterRequests({status:'open'})");
+  const urgent = requests.filter(r => isOpenReq(r) && r.priority === 'urgent').sort(byDateDesc);
+  $id('dash-urgent').innerHTML = urgent.length ? `<div class="mk-banner bad"><div class="grow"><b>⚡ ${num(urgent.length)} ${urgent.length === 1 ? 'طلب صيانة عاجل مفتوح' : 'طلبات صيانة عاجلة مفتوحة'}</b><br>${urgent.slice(0, 3).map(r => `${esc(r.code)} — ${esc(r.vSnap?.name)}: ${esc(r.type)}`).join(' · ')}</div><button class="btn btn-sm" onclick="VH.filterRequests({status:'open',pri:'urgent'})">عرضها</button></div>` : '';
   const recent = activeVehicles().slice().sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '')).slice(0, 6);
   $id('dash-recent').innerHTML = `<div class="mk-title"><span>آخر المركبات تحديثاً</span><button class="btn btn-sm" onclick="VH.showView('list')">كل المركبات</button></div>` +
     (recent.length ? `<div class="vh-mini">${recent.map(v => `<button class="vh-mini-row" onclick="VH.openFile('${v.id}')"><b>${esc(vName(v))}</b><span class="muted num">${esc(v.code)} · ${ltr(v.plate)}</span>${statusPill(v.status)}</button>`).join('')}</div>`
@@ -397,7 +470,7 @@ async function toggleArchive(id){
 }
 
 /* ---------- ملف المركبة ---------- */
-const FILE_TABS = [['info', 'البيانات الأساسية'], ['log', 'سجل المتابعة']];
+const FILE_TABS = [['info', 'البيانات الأساسية'], ['req', 'طلبات الصيانة'], ['mnt', 'سجل الصيانة'], ['cost', 'المصاريف'], ['log', 'سجل المتابعة']];
 function openFile(id, push){
   const v = vById(id); if (!v) return;
   fileId = id; fileTab = 'info';
@@ -415,12 +488,16 @@ function setFileTab(t){ fileTab = t; renderFile(); vib(6); }
 function renderFile(){
   const v = vById(fileId), el = $id('view-file');
   if (!v){ showView('list', true); return; }
-  const lastLog = v.log[v.log.length - 1];
+  const lastR = lastReport(v.id), nextP = nextPlanned(v.id);
+  const tabCount = { req:vRequests(v.id).length, mnt:vReports(v.id).length, log:v.log.length };
   el.innerHTML = `
     <div class="vh-file-head">
       <button class="btn btn-sm btn-ghost" onclick="VH.closeFile()" aria-label="رجوع">→ رجوع</button>
       <div class="vh-file-actions">
-        <button class="btn btn-sm btn-primary" onclick="VH.openVehicleForm('${v.id}')">تعديل البيانات</button>
+        <button class="btn btn-sm btn-primary" onclick="VH.openRequestForm(null,'${v.id}')">إضافة طلب صيانة</button>
+        <button class="btn btn-sm btn-primary" onclick="VH.openReportForm(null,'${v.id}')">تسجيل صيانة منفذة</button>
+        <button class="btn btn-sm" onclick="VH.openVehicleForm('${v.id}')">تعديل البيانات</button>
+        <button class="btn btn-sm" onclick="VH.setFileTab('mnt')">عرض سجل الصيانة</button>
         <button class="btn btn-sm" onclick="VH.printVehicle('${v.id}')">طباعة الملف</button>
         <button class="btn btn-sm ${v.archived ? '' : 'btn-ghost'}" onclick="VH.toggleArchive('${v.id}')">${v.archived ? 'استعادة من الأرشيف' : 'أرشفة'}</button>
       </div>
@@ -435,12 +512,14 @@ function renderFile(){
           <div><small>السائق المسؤول</small><b>${esc(v.driver) || '—'}</b>${v.driverPhone ? `<a class="vh-tel num" href="tel:${esc(v.driverPhone)}">${esc(v.driverPhone)}</a>` : ''}</div>
           <div><small>قراءة العداد</small><b class="num">${v.odometer != null ? num(v.odometer) + ' كم' : '—'}</b>${v.odoDate ? `<span class="muted">${fmtDate(v.odoDate)}</span>` : ''}</div>
           <div><small>الحالة منذ</small><b>${fmtDate(v.statusSince)}</b></div>
+          <div><small>آخر صيانة</small><b>${lastR ? fmtDate(lastR.date) : '—'}</b>${lastR ? `<span class="muted">${esc(lastR.type)}</span>` : ''}</div>
+          <div><small>موعد الصيانة القادمة</small><b>${nextP ? [nextP.date ? fmtDate(nextP.date) : '', nextP.km ? num(nextP.km) + ' كم' : ''].filter(Boolean).join(' أو ') : '—'}</b></div>
         </div>
         ${v.archived ? '' : `<div class="vh-status-row"><span class="muted">تغيير الحالة:</span>${STATUS_KEYS.map(k => `<button class="btn btn-sm${v.status === k ? ' btn-primary' : ''}" ${v.status === k ? 'disabled' : ''} onclick="VH.setStatus('${v.id}','${k}')">${STATUS[k].label}</button>`).join('')}</div>`}
       </div>
     </div>
-    <div class="mk-tabs vh-file-tabs" role="tablist">${FILE_TABS.map(([k, l]) => `<button class="mk-tab${fileTab === k ? ' active' : ''}" role="tab" onclick="VH.setFileTab('${k}')">${l}${k === 'log' ? ` <span class="pill info num">${num(v.log.length)}</span>` : ''}</button>`).join('')}</div>
-    <div id="vh-file-body">${fileTab === 'log' ? fileLog(v) : fileInfo(v)}</div>`;
+    <div class="mk-tabs vh-file-tabs" role="tablist">${FILE_TABS.map(([k, l]) => `<button class="mk-tab${fileTab === k ? ' active' : ''}" role="tab" onclick="VH.setFileTab('${k}')">${l}${tabCount[k] ? ` <span class="pill info num">${num(tabCount[k])}</span>` : ''}</button>`).join('')}</div>
+    <div id="vh-file-body">${({ log:fileLog, req:fileReqs, mnt:fileMnts, cost:fileCosts })[fileTab]?.(v) || fileInfo(v)}</div>`;
   hydrateImages(el);
 }
 function fileInfo(v){
@@ -458,6 +537,31 @@ function fileInfo(v){
         <div class="mk-scroll"><table class="mk-table"><thead><tr><th>السائق</th><th>الهاتف</th><th>من</th><th>إلى</th></tr></thead><tbody>
         ${drivers.map(d => `<tr><td>${esc(d.name)}</td><td class="num">${esc(d.phone) || '—'}</td><td class="num">${fmtDate(d.from)}</td><td class="num">${d.to ? fmtDate(d.to) : '<span class="pill ok">حالياً</span>'}</td></tr>`).join('')}</tbody></table></div>` : ''}
     </div>`;
+}
+function fileReqs(v){
+  const list = vRequests(v.id).sort((a, b) => (isOpenReq(b) - isOpenReq(a)) || byDateDesc(a, b));
+  return `<div class="mk-card mk-table-card"><div class="mk-table-head"><h3>طلبات الصيانة <span class="pill info num">${num(list.length)}</span></h3><div class="row"><button class="btn btn-sm btn-primary" onclick="VH.openRequestForm(null,'${v.id}')">طلب جديد</button></div></div>
+    <div class="mk-scroll"><table class="mk-table vh-table"><thead><tr><th>الرقم</th><th>التاريخ</th><th>المركبة</th><th>النوع</th><th>الأولوية</th><th>الحالة</th><th></th></tr></thead><tbody>
+    ${list.length ? reqRows(list) : '<tr><td colspan="7" class="mk-empty">لا توجد طلبات صيانة لهذه المركبة.</td></tr>'}</tbody></table></div></div>`;
+}
+let fileSort = 'desc';
+function setFileSort(){ fileSort = fileSort === 'desc' ? 'asc' : 'desc'; renderFile(); vib(6); }
+function fileMnts(v){
+  const list = vReports(v.id).sort(byDateDesc); if (fileSort === 'asc') list.reverse();
+  return `<div class="mk-card mk-table-card"><div class="mk-table-head"><h3>سجل الصيانة <span class="pill info num">${num(list.length)}</span></h3>
+    <div class="row"><button class="btn btn-sm" onclick="VH.setFileSort()">${fileSort === 'desc' ? 'الأحدث أولاً ↓' : 'الأقدم أولاً ↑'}</button><button class="btn btn-sm btn-primary" onclick="VH.openReportForm(null,'${v.id}')">تسجيل صيانة</button></div></div>
+    <div class="mk-scroll"><table class="mk-table vh-table"><thead><tr><th>التقرير</th><th>التاريخ</th><th>النوع</th><th>الورشة</th><th>العداد</th><th>الإجمالي</th><th></th></tr></thead><tbody>
+    ${list.length ? mntRows(list, false) : '<tr><td colspan="7" class="mk-empty">لا توجد صيانة مسجّلة لهذه المركبة.</td></tr>'}</tbody></table></div></div>`;
+}
+function fileCosts(v){
+  const list = vReports(v.id).sort(byDateDesc);
+  const sum = k => r2(list.reduce((s, m) => s + (+m[k] || 0), 0)), tot = r2(list.reduce((s, m) => s + reportTotal(m), 0));
+  return `<div class="mk-kpis"><div class="mk-card mk-kpi"><small>قطع الغيار</small><b class="num">${money(sum('partsCost'))}</b></div><div class="mk-card mk-kpi"><small>أجور العمل</small><b class="num">${money(sum('labor'))}</b></div>
+      <div class="mk-card mk-kpi"><small>تكاليف إضافية</small><b class="num">${money(sum('extra'))}</b></div><div class="mk-card mk-kpi good"><small>الإجمالي</small><b class="num">${money(tot)}</b></div></div>
+    <div class="mk-card mk-table-card"><div class="mk-table-head"><h3>تفاصيل المصاريف</h3></div>
+    <div class="mk-scroll"><table class="mk-table vh-table"><thead><tr><th>التقرير</th><th>التاريخ</th><th>النوع</th><th>قطع الغيار</th><th>أجور العمل</th><th>إضافية</th><th>الإجمالي</th></tr></thead><tbody>
+    ${list.length ? list.map(m => `<tr onclick="VH.openReport('${m.id}')"><td class="num">${ltr(m.code)}</td><td class="num">${fmtDate(m.date)}</td><td>${esc(m.type)}</td><td class="num">${money(m.partsCost)}</td><td class="num">${money(m.labor)}</td><td class="num">${money(m.extra)}</td><td class="num"><b>${money(reportTotal(m))}</b></td></tr>`).join('')
+      + `<tr class="tot"><td colspan="3">الإجمالي</td><td class="num">${money(sum('partsCost'))}</td><td class="num">${money(sum('labor'))}</td><td class="num">${money(sum('extra'))}</td><td class="num"><b>${money(tot)}</b></td></tr>` : '<tr><td colspan="7" class="mk-empty">لا توجد مصاريف بعد.</td></tr>'}</tbody></table></div></div>`;
 }
 function fileLog(v){
   if (!v.log.length) return `<div class="mk-card mk-pad">${emptyState('لا يوجد سجل بعد', 'كل تعديل أو تغيير حالة رح يظهر هون.', '')}</div>`;
@@ -479,6 +583,410 @@ function addNote(id){
     save(); sheet.close(); render();
     notify({ type:'success', title:'تمت إضافة الملاحظة', msg:`في سجل متابعة ${v.code}.`, page:'vehicles', log:false });
   };
+}
+
+/* ---------- المنطق: طلبات الصيانة وتقاريرها ---------- */
+const qById = id => requests.find(r => r.id === id);
+const mById = id => reports.find(r => r.id === id);
+// نسخة من بيانات المركبة وقت التسجيل: تغيير السائق أو اللوحة لاحقاً لا يغيّر السجلات القديمة
+const snap = v => ({ code:v.code, name:vName(v), plate:v.plate, driver:v.driver || '' });
+const reportTotal = r => r2((+r.partsCost || 0) + (+r.labor || 0) + (+r.extra || 0));
+const vReports = id => reports.filter(r => r.vehicleId === id);
+const vRequests = id => requests.filter(r => r.vehicleId === id);
+const byDateDesc = (a, b) => (b.date || '').localeCompare(a.date || '') || (b.no || 0) - (a.no || 0);
+function lastReport(id){ return vReports(id).slice().sort(byDateDesc)[0] || null; }
+// أقرب موعد قادم مسجّل في آخر تقرير يحمل موعداً
+function nextPlanned(id){ const r = vReports(id).filter(x => x.nextDate || x.nextKm).sort(byDateDesc)[0]; return r ? { date:r.nextDate || '', km:r.nextKm || null, report:r } : null; }
+const reqPill = s => { const m = REQ_STATUS[s] || REQ_STATUS.new; return `<span class="pill ${m.pill}">${m.label}</span>`; };
+const priPill = p => { const m = PRIORITY[p] || PRIORITY.normal; return `<span class="pill ${m.pill}">${p === 'urgent' ? '⚡ ' : ''}${m.label}</span>`; };
+const vehOptions = (sel, withArchived) => vehicles.filter(v => withArchived || !v.archived || v.id === sel).slice().sort((a, b) => a.no - b.no)
+  .map(v => `<option value="${v.id}"${v.id === sel ? ' selected' : ''}>${esc(v.code)} — ${esc(vName(v))}${v.plate ? ' (' + esc(v.plate) + ')' : ''}${v.archived ? ' — مؤرشفة' : ''}</option>`).join('');
+const typeOptions = sel => { const list = settings.types.slice(); if (sel && !list.includes(sel)) list.push(sel); return list.map(t => `<option${t === sel ? ' selected' : ''}>${esc(t)}</option>`).join(''); };
+
+/* ---------- المرفقات في النماذج ---------- */
+// ودجة مرفقات متعددة: صور تُضغط، وPDF/مستندات تُحفظ كما هي
+function attWidget(ov, prefix, initial){
+  let list = (initial || []).slice();
+  const box = ov.querySelector('#' + prefix + '-atts'), inp = ov.querySelector('#' + prefix + '-file');
+  const draw = () => {
+    box.innerHTML = list.map((a, i) => `<span class="vh-att"><button type="button" class="vh-att-open" data-i="${i}">${/^image\//.test(a.type) ? '🖼' : '📄'} ${esc(a.name)}</button><button type="button" class="vh-att-rm" data-rm="${i}" aria-label="إزالة">×</button></span>`).join('') || '<span class="muted">لا توجد مرفقات</span>';
+  };
+  box.addEventListener('click', e => {
+    const rm = e.target.closest('[data-rm]'), op = e.target.closest('[data-i]');
+    if (rm){ list.splice(+rm.dataset.rm, 1); draw(); }
+    else if (op) openAtt(list[+op.dataset.i]);
+  });
+  inp.addEventListener('change', async () => {
+    const files = [...inp.files]; inp.value = '';
+    for (const f of files){
+      if (f.size > 15 * 1024 * 1024){ notify({ type:'error', title:'الملف كبير جداً', msg:`«${f.name}» أكبر من ١٥ ميغا.`, log:false }); continue; }
+      try { list.push(await storeFile(f)); } catch(err){ notify({ type:'error', title:'تعذّر حفظ المرفق', msg:'السبب: ' + (err.message || err), log:false }); }
+    }
+    draw();
+  });
+  draw();
+  return { get:() => list };
+}
+async function openAtt(a){
+  if (!a) return;
+  const u = await attUrl(a.key);
+  if (!u) return notify({ type:'error', title:'المرفق غير موجود على هذا الجهاز', msg:'ربما حُذف من المتصفح. استعد نسخة احتياطية فيها المرفقات.', log:false });
+  const w = window.open(u, '_blank');
+  if (!w) notify({ type:'error', title:'المتصفح منع فتح المرفق', msg:'اسمح بالنوافذ المنبثقة لهذا الموقع.', log:false });
+}
+const attList = atts => (atts || []).length ? `<div class="vh-att-list">${atts.map(a => `<button type="button" class="vh-att" onclick='VH.openAttKey(${JSON.stringify(a.key)})'>${/^image\//.test(a.type) ? '🖼' : '📄'} ${esc(a.name)}</button>`).join('')}</div>` : '<span class="muted">—</span>';
+function openAttKey(key){
+  const a = [...requests, ...reports].flatMap(r => r.atts || []).find(x => x.key === key);
+  openAtt(a);
+}
+
+/* ---------- نموذج طلب الصيانة ---------- */
+function openRequestForm(id, vehicleId){
+  vib(10);
+  const ex = id ? qById(id) : null;
+  if (!ex && !activeVehicles().length) return notify({ type:'warning', title:'لا توجد مركبات بعد', msg:'أضف مركبة أولاً ثم سجّل طلب الصيانة عليها.', action:{ label:'مركبة جديدة', fn:() => openVehicleForm() } });
+  const code = ex ? ex.code : qCode(nextNo(requests));
+  const f = (k, d = '') => esc(ex ? (ex[k] ?? d) : d);
+  const html = `
+    <div class="mk-form-head">${carIco(40)}<div><h3>${ex ? 'تعديل طلب الصيانة' : 'طلب صيانة جديد'}</h3><p>رقم الطلب: <b class="num">${esc(code)}</b> — يُسجَّل الطلب «بلاغ جديد» حتى تحدّث حالته بنفسك.</p></div></div>
+    <div class="mk-grid">
+      <div class="mk-field wide2"><label for="vh-r-veh">المركبة <i>*</i></label><select class="mk-inp" id="vh-r-veh">${ex ? '' : '<option value="">— اختر المركبة —</option>'}${vehOptions(ex ? ex.vehicleId : vehicleId)}</select></div>
+      <div class="mk-field"><label for="vh-r-date">تاريخ الإبلاغ <i>*</i></label><input class="mk-inp" type="date" id="vh-r-date" value="${ex ? ex.date : todayISO()}"></div>
+      <div class="mk-field"><label for="vh-r-reporter">المُبلِّغ عن العطل</label><input class="mk-inp" id="vh-r-reporter" list="vh-rep-dl" placeholder="مثال: السائق" value="${f('reporter')}"><datalist id="vh-rep-dl">${[...new Set([...vehicles.map(v => v.driver), ...requests.map(r => r.reporter)].filter(Boolean))].map(x => `<option value="${esc(x)}">`).join('')}</datalist></div>
+      <div class="mk-field"><label for="vh-r-type">نوع الصيانة <i>*</i></label><select class="mk-inp" id="vh-r-type">${typeOptions(ex ? ex.type : '')}</select></div>
+      <div class="mk-field"><label for="vh-r-pri">الأولوية</label><select class="mk-inp" id="vh-r-pri">${PRIORITY_KEYS.map(k => `<option value="${k}"${(ex ? ex.priority : 'normal') === k ? ' selected' : ''}>${PRIORITY[k].label}</option>`).join('')}</select></div>
+    </div>
+    <div class="mk-field" style="margin-top:12px"><label for="vh-r-desc">وصف العطل بالتفصيل <i>*</i></label><textarea class="mk-inp" id="vh-r-desc" placeholder="مثال: صوت طقطقة من العجل الأمامي اليمين عند الفرملة">${f('desc')}</textarea></div>
+    <div class="mk-grid" style="margin-top:12px">
+      <div class="mk-field"><label for="vh-r-cause">سبب العطل (إن كان معروفاً)</label><input class="mk-inp" id="vh-r-cause" placeholder="اختياري" value="${f('cause')}"></div>
+      <div class="mk-field"><label for="vh-r-by">اسم مُسجِّل الطلب</label><input class="mk-inp" id="vh-r-by" value="${esc(ex ? ex.by || '' : settings.lastBy)}"></div>
+    </div>
+    <div class="mk-field" style="margin-top:12px"><label for="vh-r-notes">ملاحظات</label><input class="mk-inp" id="vh-r-notes" placeholder="اختياري" value="${f('notes')}"></div>
+    <div class="mk-field" style="margin-top:12px"><label>صور العطل أو مستندات</label><div class="vh-atts" id="vh-r-atts"></div>
+      <label class="btn btn-sm" style="align-self:flex-start">إرفاق ملفات<input type="file" id="vh-r-file" multiple accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx" hidden></label></div>
+    <div class="actions"><button class="btn btn-primary" data-save>${ex ? 'حفظ التعديل' : 'تسجيل الطلب'}</button><button class="btn" data-cancel>إلغاء</button></div>`;
+  const sheet = App.sheet(html, { cls:'wide' });
+  const ov = sheet.ov, q = s => ov.querySelector(s);
+  const atts = attWidget(ov, 'vh-r', ex ? ex.atts : []);
+  q('[data-cancel]').onclick = () => sheet.close();
+  q('[data-save]').onclick = () => {
+    const val = s => q(s).value.trim();
+    const vehicleId = q('#vh-r-veh').value, date = q('#vh-r-date').value, desc = val('#vh-r-desc');
+    if (!vehicleId) return markInvalid(q('#vh-r-veh'), 'اختر المركبة', 'كل طلب صيانة لازم يرتبط بمركبة.');
+    if (!date) return markInvalid(q('#vh-r-date'), 'تاريخ الإبلاغ مطلوب', 'حدّد يوم الإبلاغ عن العطل.');
+    if (date > todayISO()) return markInvalid(q('#vh-r-date'), 'تاريخ الإبلاغ في المستقبل', 'اختر تاريخ اليوم أو قبله.');
+    if (!desc) return markInvalid(q('#vh-r-desc'), 'وصف العطل مطلوب', 'اكتب شو المشكلة بالضبط.');
+    const by = val('#vh-r-by'); if (by) settings.lastBy = by;
+    const v = vById(vehicleId), now = new Date().toISOString();
+    const data = { vehicleId, date, reporter:val('#vh-r-reporter'), type:q('#vh-r-type').value, priority:q('#vh-r-pri').value,
+      desc, cause:val('#vh-r-cause'), notes:val('#vh-r-notes'), atts:atts.get(), by };
+    if (ex){
+      if (ex.vehicleId !== vehicleId) ex.vSnap = snap(v);
+      Object.assign(ex, data, { updatedAt:now });
+      ex.history.push({ at:now, from:ex.status, to:ex.status, note:'تعديل بيانات الطلب', by });
+      save(); sheet.close(); render();
+      notify({ type:'success', title:'تم حفظ تعديل الطلب', msg:`${ex.code} — ${vName(v)}`, page:'vehicles' });
+    } else {
+      const no = nextNo(requests);
+      const r = { id:newId('req'), no, code:qCode(no), ...data, vSnap:snap(v), status:'new',
+        history:[{ at:now, from:'', to:'new', note:'تسجيل الطلب', by }], createdAt:now, updatedAt:now };
+      requests.push(r);
+      logEvent(v, `طلب صيانة ${r.code}: ${r.type}${r.priority === 'urgent' ? ' (عاجل)' : ''}`, by);
+      if (v.status === 'ready'){ /* عطل مُبلّغ: نعرض تحويل الحالة بدل فرضها */ }
+      flashId = r.id;
+      save(); sheet.close(); render();
+      notify({ type: r.priority === 'urgent' ? 'warning' : 'success', title:`تم تسجيل طلب الصيانة ${r.code}`, page:'vehicles', duration:8000,
+        msg:`${vName(v)} — ${r.type}. الحالة: بلاغ جديد.` + (v.status === 'ready' ? ' المركبة ما زالت «جاهزة».' : ''),
+        action: v.status === 'ready' ? { label:'تحويلها «تحتاج صيانة»', fn:() => setStatus(v.id, 'needs', 'بسبب ' + r.code) } : { label:'تحديث الحالة', fn:() => openReqStatus(r.id) } });
+    }
+  };
+}
+
+/* ---------- تحديث حالة الطلب (مع سجل كل تغيير) ---------- */
+function openReqStatus(id){
+  const r = qById(id); if (!r) return;
+  const sheet = App.sheet(`
+    <div class="mk-form-head">${carIco(40)}<div><h3>تحديث حالة ${esc(r.code)}</h3><p>${esc(r.vSnap?.name || '')} — ${esc(r.type)}. الحالة الحالية: <b>${REQ_STATUS[r.status].label}</b></p></div></div>
+    <div class="mk-field"><label>الحالة الجديدة</label><div class="vh-seg-wrap" id="vh-s-seg">${REQ_KEYS.map(k => `<button type="button" class="btn btn-sm" data-st="${k}" aria-pressed="false"${k === r.status ? ' disabled' : ''}>${REQ_STATUS[k].label}</button>`).join('')}</div></div>
+    <div class="mk-grid" style="margin-top:12px">
+      <div class="mk-field"><label for="vh-s-date">تاريخ التغيير</label><input class="mk-inp" type="date" id="vh-s-date" value="${todayISO()}"></div>
+      <div class="mk-field"><label for="vh-s-by">بواسطة</label><input class="mk-inp" id="vh-s-by" value="${esc(settings.lastBy)}"></div>
+    </div>
+    <div class="mk-field" style="margin-top:12px"><label for="vh-s-note">ملاحظة التحديث</label><textarea class="mk-inp" id="vh-s-note" placeholder="مثال: وافق المدير على الإصلاح في ورشة الأمل"></textarea></div>
+    <div class="actions"><button class="btn btn-primary" data-save>حفظ التحديث</button><button class="btn" data-cancel>إلغاء</button></div>`);
+  const ov = sheet.ov, q = s => ov.querySelector(s);
+  let to = '';
+  q('#vh-s-seg').addEventListener('click', e => { const b = e.target.closest('[data-st]'); if (!b || b.disabled) return; to = b.dataset.st; ov.querySelectorAll('#vh-s-seg [data-st]').forEach(x => { x.classList.toggle('btn-primary', x === b); x.setAttribute('aria-pressed', x === b); }); vib(6); });
+  q('[data-cancel]').onclick = () => sheet.close();
+  q('[data-save]').onclick = () => {
+    if (!to) return markInvalid(q('#vh-s-seg'), 'اختر الحالة الجديدة', 'اضغط على إحدى الحالات.');
+    const day = q('#vh-s-date').value || todayISO(), by = q('#vh-s-by').value.trim(), note = q('#vh-s-note').value.trim();
+    if (to === 'cancelled' && !note) return markInvalid(q('#vh-s-note'), 'اكتب سبب الإلغاء', 'حتى يبقى واضحاً بالسجل ليش انلغى الطلب.');
+    if (by) settings.lastBy = by;
+    sheet.close();
+    changeReqStatus(r, to, note, by, day);
+  };
+}
+function changeReqStatus(r, to, note, by, day){
+  const from = r.status, now = new Date().toISOString();
+  const at = day && day !== todayISO() ? day + 'T12:00:00' : now;
+  r.status = to; r.updatedAt = now;
+  if (to === 'done' || to === 'cancelled') r.closedAt = day || todayISO(); else r.closedAt = '';
+  r.history.push({ at, from, to, note:note || '', by: by || settings.lastBy || '' });
+  const v = vById(r.vehicleId);
+  if (v){ logEvent(v, `${r.code}: ${REQ_STATUS[from]?.label || '—'} ← ${REQ_STATUS[to].label}${note ? ' — ' + note : ''}`, by); v.updatedAt = now; }
+  save(); render();
+  const action = to === 'done' && !reports.some(m => m.requestId === r.id) ? { label:'تسجيل الصيانة المنفذة', fn:() => openReportForm(null, r.vehicleId, r.id) }
+    : to === 'progress' && v && v.status !== 'under' ? { label:'المركبة «تحت الصيانة»', fn:() => setStatus(v.id, 'under', 'بسبب ' + r.code) }
+    : { label:'تراجع', fn:() => { r.status = from; r.history.pop(); r.closedAt = ''; if (v) logEvent(v, `تراجع عن تحديث ${r.code}`); save(); render(); notify({ type:'info', title:'تم التراجع', log:false }); } };
+  notify({ type:'success', title:`${r.code}: ${REQ_STATUS[to].label}`, msg:`تم تسجيل التغيير من «${REQ_STATUS[from]?.label || '—'}» بتاريخه${note ? ' مع الملاحظة' : ''}.`, page:'vehicles', duration:8000, action });
+}
+
+/* ---------- تفاصيل الطلب ---------- */
+function openRequest(id){
+  const r = qById(id); if (!r) return;
+  const v = vById(r.vehicleId), linked = reports.filter(m => m.requestId === r.id);
+  const sheet = App.sheet(`
+    <div class="mk-form-head">${carIco(40)}<div><h3>${esc(r.code)} — ${esc(r.type)}</h3><p>${esc(v ? vName(v) : r.vSnap?.name)} · ${ltr(r.vSnap?.plate)}</p></div></div>
+    <div class="vh-badges">${reqPill(r.status)}${priPill(r.priority)}</div>
+    <div class="mk-detail vh-detail">
+      <div><small>تاريخ الإبلاغ</small><b>${fmtDate(r.date)}</b></div><div><small>المُبلِّغ</small><b>${esc(r.reporter) || '—'}</b></div>
+      <div><small>السائق وقت الطلب</small><b>${esc(r.vSnap?.driver) || '—'}</b></div><div><small>سجّله</small><b>${esc(r.by) || '—'}</b></div>
+    </div>
+    <div class="vh-notes"><small>وصف العطل</small><p>${esc(r.desc)}</p></div>
+    ${r.cause ? `<div class="vh-notes"><small>سبب العطل</small><p>${esc(r.cause)}</p></div>` : ''}${r.notes ? `<div class="vh-notes"><small>ملاحظات</small><p>${esc(r.notes)}</p></div>` : ''}
+    <div class="vh-notes"><small>المرفقات</small>${attList(r.atts)}</div>
+    ${linked.length ? `<div class="vh-notes"><small>تقارير الصيانة المرتبطة</small><p>${linked.map(m => `<button class="btn btn-sm" onclick="VH.openReport('${m.id}')">${esc(m.code)} — ${money(reportTotal(m))}</button>`).join(' ')}</p></div>` : ''}
+    <div class="mk-title" style="margin-top:14px"><span>سجل تغييرات الحالة</span></div>
+    <ol class="vh-timeline">${r.history.slice().reverse().map(h => `<li><time class="num">${fmtDateTime(h.at)}</time><p>${h.from === h.to ? esc(h.note) : `${h.from ? REQ_STATUS[h.from]?.label + ' ← ' : ''}<b>${REQ_STATUS[h.to]?.label}</b>${h.note ? ' — ' + esc(h.note) : ''}`}</p>${h.by ? `<small>${esc(h.by)}</small>` : ''}</li>`).join('')}</ol>
+    <div class="actions">
+      <button class="btn btn-primary" data-st>تحديث الحالة</button>
+      ${isOpenReq(r) ? '<button class="btn" data-rep>تسجيل الصيانة المنفذة</button>' : ''}
+      <button class="btn" data-edit>تعديل</button><button class="btn btn-ghost" data-close>إغلاق</button></div>`, { cls:'wide' });
+  const q = s => sheet.ov.querySelector(s);
+  q('[data-close]').onclick = () => sheet.close();
+  q('[data-st]').onclick = () => { sheet.close(); openReqStatus(r.id); };
+  q('[data-edit]').onclick = () => { sheet.close(); openRequestForm(r.id); };
+  if (q('[data-rep]')) q('[data-rep]').onclick = () => { sheet.close(); openReportForm(null, r.vehicleId, r.id); };
+}
+
+/* ---------- نموذج تقرير الصيانة المنفذة ---------- */
+function openReportForm(id, vehicleId, requestId){
+  vib(10);
+  const ex = id ? mById(id) : null;
+  if (!ex && !vehicles.length) return notify({ type:'warning', title:'لا توجد مركبات بعد', msg:'أضف مركبة أولاً.', action:{ label:'مركبة جديدة', fn:() => openVehicleForm() } });
+  const req = requestId ? qById(requestId) : ex && ex.requestId ? qById(ex.requestId) : null;
+  const vid = ex ? ex.vehicleId : vehicleId || (req && req.vehicleId) || '';
+  const code = ex ? ex.code : mCode(nextNo(reports));
+  const f = (k, d = '') => esc(ex ? (ex[k] ?? d) : d);
+  const v0 = vById(vid);
+  const reqOpts = vId => `<option value="">— بدون طلب —</option>` + requests.filter(r => r.vehicleId === vId && (isOpenReq(r) || (ex && r.id === ex.requestId) || r.id === requestId))
+    .map(r => `<option value="${r.id}"${(req && r.id === req.id) ? ' selected' : ''}>${esc(r.code)} — ${esc(r.type)} (${REQ_STATUS[r.status].label})</option>`).join('');
+  const html = `
+    <div class="mk-form-head">${carIco(40)}<div><h3>${ex ? 'تعديل تقرير الصيانة' : 'تسجيل صيانة منفذة'}</h3><p>رقم التقرير: <b class="num">${esc(code)}</b>. كل صيانة سجل مستقل ولا تستبدل ما قبلها.</p></div></div>
+    <div class="mk-grid">
+      <div class="mk-field wide2"><label for="vh-m-veh">المركبة <i>*</i></label><select class="mk-inp" id="vh-m-veh"${ex ? ' disabled' : ''}>${vid ? '' : '<option value="">— اختر المركبة —</option>'}${vehOptions(vid, !!ex)}</select></div>
+      <div class="mk-field"><label for="vh-m-req">طلب الصيانة المرتبط</label><select class="mk-inp" id="vh-m-req">${reqOpts(vid)}</select></div>
+      <div class="mk-field"><label for="vh-m-date">تاريخ التنفيذ <i>*</i></label><input class="mk-inp" type="date" id="vh-m-date" value="${ex ? ex.date : todayISO()}"></div>
+      <div class="mk-field"><label for="vh-m-type">نوع الصيانة <i>*</i></label><select class="mk-inp" id="vh-m-type">${typeOptions(ex ? ex.type : req ? req.type : '')}</select></div>
+      <div class="mk-field"><label for="vh-m-odo">عداد الكيلومترات وقت الصيانة</label><input class="mk-inp num" id="vh-m-odo" inputmode="numeric" placeholder="${v0 && v0.odometer != null ? 'آخر قراءة: ' + v0.odometer : '0'}" value="${ex && ex.odometer != null ? ex.odometer : ''}"></div>
+      <div class="mk-field"><label for="vh-m-shop">مركز الصيانة / الورشة</label><input class="mk-inp" id="vh-m-shop" list="vh-shop-dl" placeholder="مثال: ورشة الأمل" value="${f('workshop')}"><datalist id="vh-shop-dl">${[...new Set(reports.map(r => r.workshop).filter(Boolean))].map(x => `<option value="${esc(x)}">`).join('')}</datalist></div>
+    </div>
+    <div class="mk-field" style="margin-top:12px"><label for="vh-m-problem">وصف المشكلة</label><textarea class="mk-inp" id="vh-m-problem" placeholder="اختياري">${ex ? esc(ex.problem || '') : req ? esc(req.desc) : ''}</textarea></div>
+    <div class="mk-field" style="margin-top:12px"><label for="vh-m-work">الأعمال والإصلاحات المنفذة <i>*</i></label><textarea class="mk-inp" id="vh-m-work" placeholder="مثال: تغيير فحمات الفرامل الأمامية وخراطة الديسكات">${f('work')}</textarea></div>
+    <div class="mk-field" style="margin-top:12px"><label for="vh-m-parts">قطع الغيار المستخدمة</label><textarea class="mk-inp" id="vh-m-parts" placeholder="مثال: فحمات أمامية ×٢، زيت فرامل لتر">${f('parts')}</textarea></div>
+    <div class="vh-costs">
+      <div class="mk-field"><label for="vh-m-pc">تكلفة قطع الغيار (${CUR})</label><input class="mk-inp num" id="vh-m-pc" inputmode="decimal" placeholder="0" value="${ex && ex.partsCost ? ex.partsCost : ''}"></div>
+      <div class="mk-field"><label for="vh-m-lab">أجور العمل (${CUR})</label><input class="mk-inp num" id="vh-m-lab" inputmode="decimal" placeholder="0" value="${ex && ex.labor ? ex.labor : ''}"></div>
+      <div class="mk-field"><label for="vh-m-ext">تكاليف إضافية (${CUR})</label><input class="mk-inp num" id="vh-m-ext" inputmode="decimal" placeholder="0" value="${ex && ex.extra ? ex.extra : ''}"></div>
+      <div class="vh-total"><small>إجمالي التكلفة</small><b class="num" id="vh-m-total">${money(ex ? reportTotal(ex) : 0)}</b></div>
+    </div>
+    <div class="mk-grid" style="margin-top:12px">
+      <div class="mk-field"><label for="vh-m-ndate">موعد الصيانة القادمة (تاريخ)</label><input class="mk-inp" type="date" id="vh-m-ndate" value="${f('nextDate')}"></div>
+      <div class="mk-field"><label for="vh-m-nkm">أو عند عداد (كم)</label><input class="mk-inp num" id="vh-m-nkm" inputmode="numeric" placeholder="اختياري" value="${ex && ex.nextKm ? ex.nextKm : ''}"></div>
+      <div class="mk-field"><label for="vh-m-by">اسم مُسجِّل التقرير</label><input class="mk-inp" id="vh-m-by" value="${esc(settings.lastBy)}"></div>
+    </div>
+    <div class="mk-field" style="margin-top:12px"><label for="vh-m-notes">ملاحظات إضافية</label><input class="mk-inp" id="vh-m-notes" placeholder="اختياري" value="${f('notes')}"></div>
+    <div class="mk-field" style="margin-top:12px"><label>صورة الفاتورة أو مستند الصيانة</label><div class="vh-atts" id="vh-m-atts"></div>
+      <label class="btn btn-sm" style="align-self:flex-start">إرفاق ملفات<input type="file" id="vh-m-file" multiple accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx" hidden></label></div>
+    <div class="actions"><button class="btn btn-primary" data-save>${ex ? 'حفظ التعديل' : 'حفظ التقرير'}</button><button class="btn" data-cancel>إلغاء</button></div>`;
+  const sheet = App.sheet(html, { cls:'wide' });
+  const ov = sheet.ov, q = s => ov.querySelector(s);
+  const atts = attWidget(ov, 'vh-m', ex ? ex.atts : []);
+  const costs = () => ['#vh-m-pc', '#vh-m-lab', '#vh-m-ext'].map(s => moneyVal(q(s).value) ?? 0);
+  // الإجمالي = قطع الغيار + أجور العمل + الإضافية، يتحدّث مع كل تعديل
+  const recalc = () => { const [a, b, c] = costs(); q('#vh-m-total').textContent = money(r2(a + b + c)); };
+  ['#vh-m-pc', '#vh-m-lab', '#vh-m-ext'].forEach(s => q(s).addEventListener('input', recalc));
+  q('#vh-m-veh').addEventListener('change', () => { q('#vh-m-req').innerHTML = reqOpts(q('#vh-m-veh').value); const v = vById(q('#vh-m-veh').value); q('#vh-m-odo').placeholder = v && v.odometer != null ? 'آخر قراءة: ' + v.odometer : '0'; });
+  q('#vh-m-req').addEventListener('change', () => { const r = qById(q('#vh-m-req').value); if (r){ q('#vh-m-type').innerHTML = typeOptions(r.type); if (!q('#vh-m-problem').value.trim()) q('#vh-m-problem').value = r.desc; } });
+  q('[data-cancel]').onclick = () => sheet.close();
+  q('[data-save]').onclick = async () => {
+    const val = s => q(s).value.trim();
+    const vehicleId = q('#vh-m-veh').value, date = q('#vh-m-date').value, work = val('#vh-m-work');
+    if (!vehicleId) return markInvalid(q('#vh-m-veh'), 'اختر المركبة', 'كل تقرير صيانة لازم يرتبط بمركبة.');
+    if (!date) return markInvalid(q('#vh-m-date'), 'تاريخ التنفيذ مطلوب', 'حدّد يوم تنفيذ الصيانة.');
+    if (date > todayISO()) return markInvalid(q('#vh-m-date'), 'تاريخ التنفيذ في المستقبل', 'سجّل الصيانة بعد تنفيذها. للمواعيد القادمة استعمل «موعد الصيانة القادمة».');
+    if (!work) return markInvalid(q('#vh-m-work'), 'اكتب الأعمال المنفذة', 'مثال: تغيير الزيت والفلتر.');
+    const ids = { '#vh-m-pc':'تكلفة قطع الغيار', '#vh-m-lab':'أجور العمل', '#vh-m-ext':'التكاليف الإضافية' };
+    for (const [s, l] of Object.entries(ids)){ const raw = val(s), n = raw ? moneyVal(raw) : 0; if (n == null || n < 0) return markInvalid(q(s), `${l} غير صحيحة`, 'اكتب مبلغاً موجباً أو اتركه فارغاً.'); }
+    const odoRaw = val('#vh-m-odo'), odo = odoRaw ? intVal(odoRaw.replace(/[,٬]/g, '')) : null;
+    if (odoRaw && (odo == null || odo < 0)) return markInvalid(q('#vh-m-odo'), 'قراءة العداد غير صحيحة', 'اكتب رقماً صحيحاً بالكيلومتر.');
+    const nkmRaw = val('#vh-m-nkm'), nextKm = nkmRaw ? intVal(nkmRaw.replace(/[,٬]/g, '')) : null;
+    if (nkmRaw && (nextKm == null || nextKm <= 0)) return markInvalid(q('#vh-m-nkm'), 'عداد الموعد القادم غير صحيح', 'اكتب رقماً بالكيلومتر.');
+    if (nextKm && odo != null && nextKm <= odo) return markInvalid(q('#vh-m-nkm'), 'عداد الموعد القادم أقل من الحالي', `العداد وقت الصيانة ${num(odo)} كم — الموعد القادم لازم يكون أكبر.`);
+    const nextDate = q('#vh-m-ndate').value;
+    if (nextDate && nextDate <= date) return markInvalid(q('#vh-m-ndate'), 'موعد الصيانة القادمة غير صحيح', 'لازم يكون بعد تاريخ التنفيذ.');
+    const [partsCost, labor, extra] = costs().map(r2);
+    const by = val('#vh-m-by'); if (by) settings.lastBy = by;
+    const v = vById(vehicleId), now = new Date().toISOString(), requestId = q('#vh-m-req').value || '';
+    const data = { requestId, date, type:q('#vh-m-type').value, problem:val('#vh-m-problem'), work, parts:val('#vh-m-parts'),
+      partsCost, labor, extra, workshop:val('#vh-m-shop'), odometer:odo, nextDate, nextKm:nextKm || null, notes:val('#vh-m-notes'), atts:atts.get() };
+    let rec;
+    if (ex){
+      const changed = reportChanges(ex, data);
+      Object.assign(ex, data, { updatedAt:now });
+      if (changed.length) ex.edits.push({ at:now, by, fields:changed });
+      rec = ex;
+    } else {
+      const no = nextNo(reports);
+      rec = { id:newId('mnt'), no, code:mCode(no), vehicleId, vSnap:snap(v), ...data, by, edits:[], createdAt:now, updatedAt:now };
+      reports.push(rec);
+      logEvent(v, `صيانة منفذة ${rec.code}: ${rec.type} — ${money(reportTotal(rec))}`, by);
+    }
+    // العداد: قراءة الصيانة الأحدث من قراءة المركبة تحدّثها
+    if (odo != null && (v.odometer == null || odo > v.odometer)){ logEvent(v, `تحديث العداد من تقرير ${rec.code}: ${v.odometer != null ? num(v.odometer) : '—'} ← ${num(odo)} كم`, by); v.odometer = odo; v.odoDate = date; }
+    v.updatedAt = now; flashId = rec.id;
+    save(); sheet.close(); render();
+    const linked = requestId ? qById(requestId) : null;
+    notify({ type:'success', title: ex ? `تم حفظ تعديل ${rec.code}` : `تم حفظ تقرير الصيانة ${rec.code}`, page:'vehicles', duration:8000,
+      msg:`${vName(v)} — ${rec.type}. الإجمالي ${money(reportTotal(rec))}.`,
+      action:{ label:'عرض التقرير', fn:() => openReport(rec.id) } });
+    // الطلب لا يُغلق تلقائياً: نسأل صراحة
+    if (linked && isOpenReq(linked)){
+      const ok = await confirmD({ title:`تحويل ${linked.code} إلى «مكتملة»؟`, msg:`التقرير ${rec.code} مرتبط بهذا الطلب وحالته «${REQ_STATUS[linked.status].label}». الطلب لا يُغلق إلا إذا أكّدت.`, okText:'نعم، مكتملة', cancelText:'ليس الآن', icon:'success' });
+      if (ok) changeReqStatus(linked, 'done', 'أُنجز بتقرير ' + rec.code, by, date);
+    }
+  };
+}
+function reportChanges(ex, data){
+  const L = { date:'التاريخ', type:'النوع', work:'الأعمال', parts:'القطع', partsCost:'تكلفة القطع', labor:'أجور العمل', extra:'الإضافية', workshop:'الورشة', odometer:'العداد', nextDate:'الموعد القادم', nextKm:'عداد الموعد القادم', requestId:'الطلب المرتبط', problem:'المشكلة', notes:'الملاحظات' };
+  return Object.keys(L).filter(k => String(ex[k] ?? '') !== String(data[k] ?? '')).map(k => ['partsCost', 'labor', 'extra'].includes(k) ? `${L[k]}: ${money(ex[k])} ← ${money(data[k])}` : L[k])
+    .concat((ex.atts || []).length !== data.atts.length ? ['المرفقات'] : []);
+}
+
+/* ---------- تفاصيل تقرير الصيانة ---------- */
+function openReport(id){
+  const m = mById(id); if (!m) return;
+  const v = vById(m.vehicleId), req = m.requestId ? qById(m.requestId) : null;
+  const sheet = App.sheet(`
+    <div class="mk-form-head">${carIco(40)}<div><h3>${esc(m.code)} — ${esc(m.type)}</h3><p>${esc(v ? vName(v) : m.vSnap?.name)} · ${ltr(m.vSnap?.plate)} · ${fmtDate(m.date)}</p></div></div>
+    <div class="mk-detail vh-detail">
+      <div><small>الورشة</small><b>${esc(m.workshop) || '—'}</b></div><div><small>العداد وقت الصيانة</small><b class="num">${m.odometer != null ? num(m.odometer) + ' كم' : '—'}</b></div>
+      <div><small>السائق وقتها</small><b>${esc(m.vSnap?.driver) || '—'}</b></div><div><small>الطلب المرتبط</small><b>${req ? `<button class="btn btn-sm" data-req>${esc(req.code)}</button>` : '—'}</b></div>
+      <div><small>الموعد القادم</small><b>${m.nextDate ? fmtDate(m.nextDate) : ''}${m.nextDate && m.nextKm ? ' أو ' : ''}${m.nextKm ? num(m.nextKm) + ' كم' : ''}${!m.nextDate && !m.nextKm ? '—' : ''}</b></div><div><small>سجّله</small><b>${esc(m.by) || '—'}</b></div>
+    </div>
+    ${m.problem ? `<div class="vh-notes"><small>وصف المشكلة</small><p>${esc(m.problem)}</p></div>` : ''}
+    <div class="vh-notes"><small>الأعمال المنفذة</small><p>${esc(m.work)}</p></div>
+    ${m.parts ? `<div class="vh-notes"><small>قطع الغيار</small><p>${esc(m.parts)}</p></div>` : ''}
+    <table class="mk-table vh-cost-table"><tbody>
+      <tr><td>قطع الغيار</td><td class="num">${money(m.partsCost)}</td></tr><tr><td>أجور العمل</td><td class="num">${money(m.labor)}</td></tr>
+      <tr><td>تكاليف إضافية</td><td class="num">${money(m.extra)}</td></tr><tr class="tot"><td>الإجمالي</td><td class="num">${money(reportTotal(m))}</td></tr></tbody></table>
+    ${m.notes ? `<div class="vh-notes"><small>ملاحظات</small><p>${esc(m.notes)}</p></div>` : ''}
+    <div class="vh-notes"><small>المرفقات</small>${attList(m.atts)}</div>
+    ${m.edits.length ? `<div class="vh-notes"><small>سجل التعديلات</small>${m.edits.slice().reverse().map(e => `<p class="vh-edit"><span class="num">${fmtDateTime(e.at)}</span>${e.by ? ' — ' + esc(e.by) : ''}: ${esc(e.fields.join('، '))}</p>`).join('')}</div>` : ''}
+    <div class="actions"><button class="btn btn-primary" data-edit>تعديل التقرير</button><button class="btn" data-print>طباعة</button><button class="btn btn-ghost" data-close>إغلاق</button></div>`, { cls:'wide' });
+  const q = s => sheet.ov.querySelector(s);
+  q('[data-close]').onclick = () => sheet.close();
+  q('[data-edit]').onclick = () => { sheet.close(); openReportForm(m.id); };
+  q('[data-print]').onclick = () => printReport(m.id);
+  if (q('[data-req]')) q('[data-req]').onclick = () => { sheet.close(); openRequest(req.id); };
+}
+
+/* ---------- قائمة طلبات الصيانة ---------- */
+function applyReqFilter(){
+  rq = { q:$id('rq-q').value.trim(), veh:$id('rq-veh').value, status:$id('rq-status').value, pri:$id('rq-pri').value, from:$id('rq-from').value, to:$id('rq-to').value };
+  renderReqs();
+}
+function filterRequests(f){
+  showView('req', true);
+  rq = Object.assign({ q:'', veh:'', status:'', pri:'', from:'', to:'' }, f);
+  ['q', 'veh', 'status', 'pri', 'from', 'to'].forEach(k => $id('rq-' + k).value = rq[k]);
+  renderReqs();
+}
+function reqMatches(r, f){
+  if (f.veh && r.vehicleId !== f.veh) return false;
+  if (f.status === 'open' ? !isOpenReq(r) : f.status && r.status !== f.status) return false;
+  if (f.pri && r.priority !== f.pri) return false;
+  if (f.from && r.date < f.from) return false;
+  if (f.to && r.date > f.to) return false;
+  if (f.q){ const t = toEn(f.q).toLowerCase(); if (![r.code, r.type, r.desc, r.reporter, r.vSnap?.name, r.vSnap?.plate, r.vSnap?.code].some(x => toEn(x).toLowerCase().includes(t))) return false; }
+  return true;
+}
+const priRank = { urgent:0, high:1, normal:2, low:3 };
+function reqRows(list){
+  return list.map(r => `<tr class="${r.priority === 'urgent' && isOpenReq(r) ? 'vh-urgent' : ''}${r.id === flashId ? ' row-new' : ''}" onclick="VH.openRequest('${r.id}')">
+    <td class="num"><b>${ltr(r.code)}</b></td><td class="num">${fmtDate(r.date)}</td><td>${esc(r.vSnap?.name)}<small class="vh-sub num">${ltr(r.vSnap?.code)}</small></td>
+    <td>${esc(r.type)}</td><td>${priPill(r.priority)}</td><td>${reqPill(r.status)}</td>
+    <td><div class="acts" onclick="event.stopPropagation()"><button class="ib" title="تحديث الحالة" aria-label="تحديث الحالة" onclick="VH.openReqStatus('${r.id}')">🔄</button><button class="ib" title="تعديل" aria-label="تعديل" onclick="VH.openRequestForm('${r.id}')">✏️</button></div></td></tr>`).join('');
+}
+function renderReqs(){
+  const sel = $id('rq-veh'), cur = sel.value;
+  sel.innerHTML = '<option value="">كل المركبات</option>' + vehOptions(cur, true); sel.value = cur;
+  const list = requests.filter(r => reqMatches(r, rq)).sort((a, b) => (isOpenReq(b) - isOpenReq(a)) || (priRank[a.priority] - priRank[b.priority]) || byDateDesc(a, b));
+  $id('rq-count').textContent = num(list.length);
+  $id('rq-body').innerHTML = list.length ? reqRows(list) : `<tr><td colspan="7" class="mk-empty">${requests.length ? 'لا توجد طلبات مطابقة للفلتر.' : 'لا توجد طلبات صيانة بعد. سجّل أي عطل فور الإبلاغ عنه.'}</td></tr>`;
+  flashId = null;
+}
+
+/* ---------- سجل الصيانة المنفذة ---------- */
+function applyMntFilter(){
+  mq = { veh:$id('mq-veh').value, type:$id('mq-type').value, from:$id('mq-from').value, to:$id('mq-to').value, sort:mq.sort };
+  renderMnts();
+}
+function toggleMntSort(){ mq.sort = mq.sort === 'desc' ? 'asc' : 'desc'; renderMnts(); vib(6); }
+function mntRows(list, withVeh){
+  return list.map(m => `<tr class="${m.id === flashId ? 'row-new' : ''}" onclick="VH.openReport('${m.id}')">
+    <td class="num"><b>${ltr(m.code)}</b></td><td class="num">${fmtDate(m.date)}</td>${withVeh ? `<td>${esc(m.vSnap?.name)}<small class="vh-sub num">${ltr(m.vSnap?.code)}</small></td>` : ''}
+    <td>${esc(m.type)}</td><td>${esc(m.workshop) || '—'}</td><td class="num">${m.odometer != null ? num(m.odometer) : '—'}</td><td class="num"><b>${money(reportTotal(m))}</b></td>
+    <td><div class="acts" onclick="event.stopPropagation()"><button class="ib" title="تعديل" aria-label="تعديل" onclick="VH.openReportForm('${m.id}')">✏️</button><button class="ib" title="طباعة" aria-label="طباعة" onclick="VH.printReport('${m.id}')">🖨</button></div></td></tr>`).join('');
+}
+function renderMnts(){
+  const sel = $id('mq-veh'), cur = sel.value;
+  sel.innerHTML = '<option value="">كل المركبات</option>' + vehOptions(cur, true); sel.value = cur;
+  const ts = $id('mq-type'), tcur = ts.value;
+  ts.innerHTML = '<option value="">كل الأنواع</option>' + [...new Set([...settings.types, ...reports.map(r => r.type)])].map(t => `<option>${esc(t)}</option>`).join(''); ts.value = tcur;
+  let list = reports.filter(m => (!mq.veh || m.vehicleId === mq.veh) && (!mq.type || m.type === mq.type) && (!mq.from || m.date >= mq.from) && (!mq.to || m.date <= mq.to));
+  list.sort(byDateDesc); if (mq.sort === 'asc') list.reverse();
+  $id('mq-sort').textContent = mq.sort === 'desc' ? 'الأحدث أولاً ↓' : 'الأقدم أولاً ↑';
+  const tot = list.reduce((s, m) => s + reportTotal(m), 0);
+  $id('mq-count').textContent = num(list.length); $id('mq-total').textContent = money(tot);
+  $id('mq-body').innerHTML = list.length ? mntRows(list, true) : `<tr><td colspan="8" class="mk-empty">${reports.length ? 'لا توجد تقارير مطابقة للفلتر.' : 'لا توجد صيانة مسجّلة بعد.'}</td></tr>`;
+  flashId = null;
+}
+
+/* ---------- إدارة أنواع الصيانة ---------- */
+function openTypes(){
+  const draw = () => settings.types.map((t, i) => `<div class="vh-type-row"><span>${esc(t)}</span><span class="muted num">${num(requests.filter(r => r.type === t).length + reports.filter(r => r.type === t).length)} استخدام</span><button class="ib del" data-del="${i}" aria-label="حذف">🗑</button></div>`).join('');
+  const sheet = App.sheet(`<div class="mk-form-head">${carIco(40)}<div><h3>أنواع الصيانة</h3><p>أضف أي نوع جديد ليظهر في الطلبات والتقارير. حذف نوع لا يغيّر السجلات القديمة.</p></div></div>
+    <div class="vh-types" id="vh-types">${draw()}</div>
+    <div class="mk-toolbar" style="margin-top:12px"><input class="mk-inp" id="vh-t-new" placeholder="نوع جديد، مثال: تغيير البطارية"><button class="btn btn-primary" data-add>إضافة</button></div>
+    <div class="actions"><button class="btn" data-close>تم</button></div>`);
+  const q = s => sheet.ov.querySelector(s);
+  q('[data-close]').onclick = () => sheet.close();
+  q('[data-add]').onclick = () => {
+    const t = q('#vh-t-new').value.trim();
+    if (!t) return markInvalid(q('#vh-t-new'), 'اكتب اسم النوع', '');
+    if (settings.types.some(x => x.trim() === t)) return markInvalid(q('#vh-t-new'), 'النوع موجود مسبقاً', '');
+    settings.types.push(t); save(); q('#vh-t-new').value = ''; q('#vh-types').innerHTML = draw();
+    notify({ type:'success', title:'تمت إضافة نوع الصيانة', msg:t, log:false });
+  };
+  q('#vh-types').addEventListener('click', async e => {
+    const b = e.target.closest('[data-del]'); if (!b) return;
+    const i = +b.dataset.del, t = settings.types[i];
+    if (settings.types.length <= 1) return notify({ type:'warning', title:'لازم يبقى نوع واحد على الأقل', log:false });
+    settings.types.splice(i, 1); save(); q('#vh-types').innerHTML = draw();
+    notify({ type:'success', title:'تم حذف النوع', msg:`«${t}» — السجلات القديمة بقيت كما هي.`, log:false, action:{ label:'تراجع', fn:() => { settings.types.splice(i, 0, t); save(); if (q('#vh-types')) q('#vh-types').innerHTML = draw(); } } });
+  });
 }
 
 /* ---------- الطباعة ---------- */
@@ -520,12 +1028,28 @@ function printVehicle(id){
   if (openPrintWindow('ملف مركبة ' + v.code, body)) notify({ type:'info', title:'تم تجهيز ملف المركبة للطباعة', msg:'اختر «حفظ بصيغة PDF» من نافذة الطباعة لو بدك ملف.', log:false });
 }
 
+function printReport(id){
+  const m = mById(id); if (!m) return;
+  const cell = (l, val) => `<div><small>${l}</small><b>${val || '—'}</b></div>`;
+  const body = `<h1>تقرير صيانة ${esc(m.code)}</h1><div class="sub">${esc(m.vSnap?.name)} — ${esc(m.vSnap?.code)} — تاريخ التنفيذ ${fmtDate(m.date)}</div>
+    <div class="grid">${cell('المركبة', esc(m.vSnap?.name))}${cell('الرقم الإداري', esc(m.vSnap?.code))}${cell('رقم اللوحة', esc(m.vSnap?.plate))}
+      ${cell('السائق وقتها', esc(m.vSnap?.driver))}${cell('نوع الصيانة', esc(m.type))}${cell('الورشة', esc(m.workshop))}
+      ${cell('العداد', m.odometer != null ? num(m.odometer) + ' كم' : '')}${cell('الطلب المرتبط', m.requestId ? esc(qById(m.requestId)?.code) : '')}${cell('الموعد القادم', [m.nextDate ? fmtDate(m.nextDate) : '', m.nextKm ? num(m.nextKm) + ' كم' : ''].filter(Boolean).join(' أو '))}</div>
+    ${m.problem ? `<h2>وصف المشكلة</h2><p>${esc(m.problem)}</p>` : ''}<h2>الأعمال المنفذة</h2><p>${esc(m.work)}</p>${m.parts ? `<h2>قطع الغيار</h2><p>${esc(m.parts)}</p>` : ''}
+    <h2>التكاليف</h2><table><tbody><tr><td>قطع الغيار</td><td>${money(m.partsCost)}</td></tr><tr><td>أجور العمل</td><td>${money(m.labor)}</td></tr><tr><td>تكاليف إضافية</td><td>${money(m.extra)}</td></tr>
+      <tr><th>الإجمالي</th><th>${money(reportTotal(m))}</th></tr></tbody></table>${m.notes ? `<h2>ملاحظات</h2><p>${esc(m.notes)}</p>` : ''}
+    <div class="sig"><div class="s">مسجّل التقرير${m.by ? ': ' + esc(m.by) : ''}</div><div class="s">مسؤول الحركة</div><div class="s">اعتماد المدير</div></div>`;
+  if (openPrintWindow('تقرير صيانة ' + m.code, body)) notify({ type:'info', title:'تم تجهيز تقرير الصيانة للطباعة', msg:'اختر «حفظ بصيغة PDF» لو بدك ملف.', log:false });
+}
+
 /* ---------- تنبيهات الشاشة الرئيسية ---------- */
 function alerts(){
   const act = activeVehicles(), res = [];
   const stopped = act.filter(v => v.status === 'stopped'), needs = act.filter(v => v.status === 'needs');
   const list = arr => arr.slice(0, 3).map(v => vName(v) + ' (' + v.code + ')').join('، ') + (arr.length > 3 ? ` و${num(arr.length - 3)} غيرها` : '');
   if (stopped.length) res.push({ severity:'high', title: stopped.length === 1 ? 'مركبة متوقفة عن العمل' : `${num(stopped.length)} مركبات متوقفة عن العمل`, subtitle:list(stopped), onOpen:() => filterStatus('stopped') });
+  const urgent = requests.filter(r => isOpenReq(r) && r.priority === 'urgent');
+  if (urgent.length) res.push({ severity:'high', title: urgent.length === 1 ? 'طلب صيانة عاجل مفتوح' : `${num(urgent.length)} طلبات صيانة عاجلة مفتوحة`, subtitle:urgent.slice(0, 3).map(r => `${r.code} — ${r.vSnap?.name || ''}`).join('، '), onOpen:() => filterRequests({ status:'open', pri:'urgent' }) });
   if (needs.length) res.push({ severity:'mid', title: needs.length === 1 ? 'مركبة تحتاج إلى صيانة' : `${num(needs.length)} مركبات تحتاج إلى صيانة`, subtitle:list(needs), onOpen:() => filterStatus('needs') });
   return res;
 }
@@ -543,6 +1067,8 @@ function onShow(){
 return {
   init, onShow, alerts, showView, applyFilter, filterStatus, openVehicleForm, openFile, closeFile, setFileTab,
   setStatus, toggleArchive, addNote, printVehicle, backupCollect, backupApply,
+  openRequestForm, openReqStatus, openRequest, applyReqFilter, filterRequests, openReportForm, openReport, printReport,
+  applyMntFilter, toggleMntSort, setFileSort, openTypes, openAttKey,
   _data:{ get vehicles(){ return vehicles; }, get requests(){ return requests; }, get reports(){ return reports; }, get settings(){ return settings; } }
 };
 })();
